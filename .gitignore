@@ -36,15 +36,8 @@ ENV/
 
 # Flask / SQLite databases
 instance/
-*.db
-*.sqlite3
-
 # Document storage (ignore files, keep folder structure with .gitkeep if used)
-storage/
-storage/backups/
-storage/documentos/
-storage/exportacoes/
-!storage/**/.gitkeep
+
 
 # Flask-Migrate
 migrations/
