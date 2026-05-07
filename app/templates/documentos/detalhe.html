@@ -1,0 +1,704 @@
+{% extends "base.html" %}
+
+{% block title %}{{ doc.codigo }} – SGQ{% endblock %}
+
+{% block content %}
+<!-- ── Header card ──────────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-start gap-3 flex-wrap">
+
+      <a href="{{ url_for('documentos.lista') }}"
+         class="btn btn-sm btn-outline-secondary flex-shrink-0 mt-1">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+
+      <div class="flex-grow-1">
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+          <code class="fs-5 fw-bold text-primary">{{ doc.codigo }}</code>
+          <span class="badge bg-light text-dark border">{{ doc.tipo_documento }}</span>
+          <span class="badge bg-{{ doc.badge_status }} fs-6">{{ doc.status }}</span>
+          <span class="badge bg-light text-secondary border font-monospace">
+            {{ doc.revisao_formatada }}
+          </span>
+          {% if doc.requer_treinamento %}
+            <span class="badge bg-warning text-dark">
+              <i class="bi bi-mortarboard me-1"></i>Requer treinamento
+            </span>
+          {% endif %}
+        </div>
+        <h1 class="h5 fw-bold mb-0">{{ doc.titulo }}</h1>
+        {% if doc.requisito_relacionado %}
+          <div class="small text-muted mt-1">
+            <i class="bi bi-link-45deg me-1"></i>
+            Requisito: {{ doc.requisito_relacionado }}
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Quick action buttons (top right) -->
+      <div class="d-flex gap-2 flex-wrap flex-shrink-0">
+        {% if doc.caminho_pdf_vigente %}
+          <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
+             class="btn btn-sm btn-danger" target="_blank" title="Abrir PDF vigente">
+            <i class="bi bi-file-pdf me-1"></i>PDF Vigente
+          </a>
+        {% endif %}
+        {% if pode_ver_docx and doc.caminho_docx_editavel %}
+          <a href="{{ url_for('documentos.download_docx', id=doc.id) }}"
+             class="btn btn-sm btn-outline-primary" title="Baixar DOCX editável">
+            <i class="bi bi-file-earmark-word me-1"></i>DOCX
+          </a>
+        {% endif %}
+        {% if pode_editar and doc.status != 'Vigente' %}
+          <a href="{{ url_for('documentos.editar', id=doc.id) }}"
+             class="btn btn-sm btn-outline-secondary" title="Editar metadados">
+            <i class="bi bi-pencil me-1"></i>Editar
+          </a>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Main content ─────────────────────────────────────────────────────────── -->
+<div class="row g-4">
+
+  <!-- ── Left: metadata + history ─────────────────────────────────────────── -->
+  <div class="col-12 col-xl-8">
+
+    <!-- Metadata card -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-info-circle me-2 text-primary"></i>Informações do Documento
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr>
+              <th class="px-3 py-2 text-muted small w-35">Código</th>
+              <td class="py-2"><code class="fw-bold text-primary">{{ doc.codigo }}</code></td>
+              <th class="px-3 py-2 text-muted small w-35">Tipo</th>
+              <td class="py-2 small">{{ TipoDocumento.LABELS.get(doc.tipo_documento, doc.tipo_documento) }}</td>
+            </tr>
+            <tr>
+              <th class="px-3 py-2 text-muted small">Revisão atual</th>
+              <td class="py-2">
+                <span class="badge bg-light text-dark border font-monospace">
+                  {{ doc.revisao_formatada }}
+                </span>
+              </td>
+              <th class="px-3 py-2 text-muted small">Status</th>
+              <td class="py-2">
+                <span class="badge bg-{{ doc.badge_status }}">{{ doc.status }}</span>
+              </td>
+            </tr>
+            <tr>
+              <th class="px-3 py-2 text-muted small">Elaborado por</th>
+              <td class="py-2 small">
+                {{ doc.elaborado_por.nome if doc.elaborado_por else '—' }}
+              </td>
+              <th class="px-3 py-2 text-muted small">Revisado por</th>
+              <td class="py-2 small">
+                {{ doc.revisado_por.nome if doc.revisado_por else '—' }}
+              </td>
+            </tr>
+            <tr>
+              <th class="px-3 py-2 text-muted small">Aprovado por</th>
+              <td class="py-2 small">
+                {{ doc.aprovado_por.nome if doc.aprovado_por else '—' }}
+              </td>
+              <th class="px-3 py-2 text-muted small">Data aprovação</th>
+              <td class="py-2 small">
+                {{ doc.data_aprovacao.strftime('%d/%m/%Y') if doc.data_aprovacao else '—' }}
+              </td>
+            </tr>
+            <tr>
+              <th class="px-3 py-2 text-muted small">Data publicação</th>
+              <td class="py-2 small">
+                {{ doc.data_publicacao.strftime('%d/%m/%Y') if doc.data_publicacao else '—' }}
+              </td>
+              <th class="px-3 py-2 text-muted small">Atualizado em</th>
+              <td class="py-2 small">
+                {{ doc.atualizado_em.strftime('%d/%m/%Y %H:%M') }}
+              </td>
+            </tr>
+            <tr>
+              <th class="px-3 py-2 text-muted small">Dist. técnica</th>
+              <td class="py-2 small">
+                {% if doc.distribuicao_tecnica %}
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Sim
+                {% else %}
+                  <span class="text-muted">Não</span>
+                {% endif %}
+              </td>
+              <th class="px-3 py-2 text-muted small">Dist. administrativa</th>
+              <td class="py-2 small">
+                {% if doc.distribuicao_administrativa %}
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Sim
+                {% else %}
+                  <span class="text-muted">Não</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th class="px-3 py-2 text-muted small">Requer treinamento</th>
+              <td class="py-2 small">
+                {% if doc.requer_treinamento %}
+                  <i class="bi bi-mortarboard-fill text-warning me-1"></i>Sim
+                {% else %}
+                  <span class="text-muted">Não</span>
+                {% endif %}
+              </td>
+              <th class="px-3 py-2 text-muted small">Requisito</th>
+              <td class="py-2 small">{{ doc.requisito_relacionado or '—' }}</td>
+            </tr>
+            {% if doc.observacao %}
+            <tr>
+              <th class="px-3 py-2 text-muted small">Observação</th>
+              <td class="py-2 small" colspan="3">{{ doc.observacao }}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Revisions table -->
+    {% if revisoes %}
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-arrow-repeat me-2 text-warning"></i>Revisões
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="px-3">Rev.</th>
+              <th>Status</th>
+              <th>Elaborado por</th>
+              <th>Data elaboração</th>
+              <th>Data aprovação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rev in revisoes %}
+            <tr>
+              <td class="px-3">
+                <span class="badge bg-light text-dark border font-monospace">
+                  {{ rev.revisao_formatada }}
+                </span>
+              </td>
+              <td>
+                <span class="badge bg-{{ rev.badge_status }}">{{ rev.status }}</span>
+              </td>
+              <td class="small">
+                {{ rev.elaborado_por.nome if rev.elaborado_por else '—' }}
+              </td>
+              <td class="small">
+                {{ rev.data_elaboracao.strftime('%d/%m/%Y') if rev.data_elaboracao else '—' }}
+              </td>
+              <td class="small">
+                {{ rev.data_aprovacao.strftime('%d/%m/%Y') if rev.data_aprovacao else '—' }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- History timeline -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-clock-history me-2 text-success"></i>Histórico de Eventos
+        <span class="badge bg-light text-dark border ms-2">{{ historico | length }}</span>
+      </div>
+      <div class="card-body" style="max-height: 420px; overflow-y: auto;">
+        {% if historico %}
+          <ul class="timeline list-unstyled mb-0">
+            {% for evento in historico %}
+            <li class="timeline-item">
+              <div class="timeline-badge bg-{{ evento.cor }}">
+                <i class="bi bi-{{ evento.icone }}"></i>
+              </div>
+              <div class="timeline-content">
+                <div class="small fw-semibold">{{ evento.acao }}</div>
+                <div class="x-small text-muted">
+                  <i class="bi bi-person me-1"></i>{{ evento.usuario.nome }}
+                  &mdash;
+                  {{ evento.data_evento.strftime('%d/%m/%Y %H:%M') }}
+                </div>
+                {% if evento.descricao %}
+                  <div class="x-small text-muted mt-1">{{ evento.descricao }}</div>
+                {% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="text-center text-muted py-4 small">
+            <i class="bi bi-clock display-6 d-block mb-2"></i>
+            Nenhum evento registrado.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+  <!-- /Left column -->
+
+  <!-- ── Right: actions ────────────────────────────────────────────────────── -->
+  <div class="col-12 col-xl-4">
+
+    <!-- Files card -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-paperclip me-2 text-primary"></i>Arquivos
+      </div>
+      <div class="card-body">
+
+        <!-- PDF Vigente -->
+        <div class="mb-3">
+          <div class="small fw-semibold text-muted mb-1">PDF Vigente (publicado)</div>
+          {% if doc.caminho_pdf_vigente %}
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-file-pdf text-danger fs-5"></i>
+              <span class="small text-truncate flex-grow-1" title="{{ doc.caminho_pdf_vigente }}">
+                {{ doc.caminho_pdf_vigente }}
+              </span>
+              <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
+                 class="btn btn-sm btn-outline-danger flex-shrink-0" target="_blank">
+                <i class="bi bi-eye"></i>
+              </a>
+            </div>
+          {% else %}
+            <div class="text-muted small">
+              <i class="bi bi-exclamation-circle text-warning me-1"></i>
+              Nenhum PDF publicado.
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- DOCX Editável -->
+        {% if pode_ver_docx %}
+        <div class="pt-3 border-top">
+          <div class="small fw-semibold text-muted mb-1">DOCX Editável (publicado)</div>
+          {% if doc.caminho_docx_editavel %}
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-file-earmark-word text-primary fs-5"></i>
+              <span class="small text-truncate flex-grow-1" title="{{ doc.caminho_docx_editavel }}">
+                {{ doc.caminho_docx_editavel }}
+              </span>
+              <a href="{{ url_for('documentos.download_docx', id=doc.id) }}"
+                 class="btn btn-sm btn-outline-primary flex-shrink-0">
+                <i class="bi bi-download"></i>
+              </a>
+            </div>
+          {% else %}
+            <div class="text-muted small">
+              <i class="bi bi-info-circle me-1"></i>Sem DOCX publicado.
+            </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+
+    {# ══════════════════════════════════════════════════════════════════════════
+       PAINEL DE WORKFLOW — baseado no status atual
+    ══════════════════════════════════════════════════════════════════════════ #}
+
+    {# ── Vigente sem revisão aberta ────────────────────────────────────────── #}
+    {% if doc.status == 'Vigente' and not revisao_ativa %}
+    <div class="alert alert-success d-flex align-items-center gap-2 small mb-3">
+      <i class="bi bi-shield-check fs-5 flex-shrink-0"></i>
+      <span>Documento <strong>vigente</strong> na Lista Mestra.</span>
+    </div>
+    {% if pode_abrir_revisao %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-arrow-repeat me-1 text-warning"></i>Abrir Nova Revisão
+      </div>
+      <div class="card-body py-2">
+        <p class="small text-muted mb-2">
+          O PDF vigente permanece acessível durante todo o processo de revisão.
+        </p>
+        <form method="POST" action="{{ url_for('documentos.abrir_revisao', id=doc.id) }}" novalidate>
+          {{ abrir_revisao_form.hidden_tag() }}
+          <div class="mb-2">
+            {{ abrir_revisao_form.motivo(class="form-control form-control-sm", rows="2",
+               placeholder="Motivo da revisão (obrigatório)") }}
+          </div>
+          {{ abrir_revisao_form.submit(class="btn btn-sm btn-warning w-100") }}
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% if pode_aprovar_doc %}
+    <div class="card border-0 shadow-sm mb-3 border-secondary">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2 text-secondary">
+        <i class="bi bi-archive me-1"></i>Tornar Obsoleto
+      </div>
+      <div class="card-body py-2">
+        <p class="small text-muted mb-2">
+          Retire este documento sem publicar uma nova revisão. O PDF será movido para a pasta de obsoletos.
+        </p>
+        <form method="POST" action="{{ url_for('documentos.tornar_obsoleto', id=doc.id) }}" novalidate>
+          {{ abrir_revisao_form.hidden_tag() }}
+          <div class="mb-2">
+            <input type="text" name="motivo" class="form-control form-control-sm"
+                   placeholder="Motivo (obrigatório)" required>
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-secondary w-100"
+                  onclick="return confirm('Confirma tornar este documento obsoleto? Esta ação não pode ser desfeita facilmente.')">
+            <i class="bi bi-archive me-1"></i>Tornar Obsoleto
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# ── Vigente com revisão em andamento ──────────────────────────────────── #}
+    {% if doc.status == 'Vigente' and revisao_ativa %}
+    <div class="alert alert-warning d-flex align-items-center gap-2 small mb-3">
+      <i class="bi bi-arrow-repeat fs-5 flex-shrink-0"></i>
+      <span>
+        Revisão <strong>Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}</strong>
+        em andamento — <strong>{{ revisao_ativa.status }}</strong>.
+        O PDF anterior continua válido.
+      </span>
+    </div>
+    {% endif %}
+
+    {# ── Em revisão (elaboração) ────────────────────────────────────────────── #}
+    {% if revisao_ativa and revisao_ativa.status == 'Em revisão' %}
+
+    {% if pode_editar %}
+    <div class="card border-0 shadow-sm mb-3 border-warning">
+      <div class="card-header bg-warning-subtle border-bottom fw-semibold small py-2">
+        <i class="bi bi-file-earmark-word me-1 text-warning"></i>
+        DOCX — Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
+      </div>
+      <div class="card-body py-2">
+        {% if revisao_ativa.arquivo_docx %}
+          <div class="small text-success mb-2 text-truncate" title="{{ revisao_ativa.arquivo_docx }}">
+            <i class="bi bi-check-circle me-1"></i>{{ revisao_ativa.arquivo_docx }}
+          </div>
+        {% else %}
+          <div class="small text-muted mb-2">
+            <i class="bi bi-exclamation-triangle text-warning me-1"></i>Nenhum DOCX enviado ainda.
+          </div>
+        {% endif %}
+        <form method="POST"
+              action="{{ url_for('documentos.upload_docx_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_docx_form.hidden_tag() }}
+          {{ upload_docx_form.arquivo_docx(class="form-control form-control-sm mb-1", accept=".docx") }}
+          <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+            <i class="bi bi-upload me-1"></i>Enviar / Substituir DOCX
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {# ── Online Editor for revision ── #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-pencil-square me-1 text-info"></i>Criar / Editar Conteúdo Online
+      </div>
+      <div class="card-body py-2">
+        <a href="{{ url_for('documentos.editor_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+           class="btn btn-sm btn-info w-100 mb-2">
+          <i class="bi bi-pencil-square me-1"></i>
+          {% if revisao_ativa.content_html %}Editar Conteúdo Online{% else %}Criar Conteúdo Online{% endif %}
+        </a>
+        {% if revisao_ativa.content_html %}
+        <a href="{{ url_for('documentos.preview_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+           target="_blank" class="btn btn-sm btn-outline-secondary w-100">
+          <i class="bi bi-eye me-1"></i>Pré-visualizar
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-upload me-1 text-danger"></i>Enviar PDF — Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
+      </div>
+      <div class="card-body py-2">
+        {% if revisao_ativa.arquivo_pdf %}
+          <div class="small text-success mb-2 text-truncate" title="{{ revisao_ativa.arquivo_pdf }}">
+            <i class="bi bi-check-circle me-1"></i>{{ revisao_ativa.arquivo_pdf }}
+          </div>
+        {% else %}
+          <div class="small text-muted mb-2">
+            <i class="bi bi-info-circle me-1"></i>Nenhum PDF enviado. Envie aqui para publicar sem gerar do DOCX.
+          </div>
+        {% endif %}
+        <form method="POST"
+              action="{{ url_for('documentos.upload_pdf_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_pdf_form.hidden_tag() }}
+          {{ upload_pdf_form.arquivo_pdf(class="form-control form-control-sm mb-1", accept=".pdf") }}
+          <button type="submit" class="btn btn-sm btn-outline-danger w-100">
+            <i class="bi bi-upload me-1"></i>Enviar / Substituir PDF
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {# ── Enviar para aprovação manual (quando há conteúdo mas status ainda Em revisão) ── #}
+    {% if revisao_ativa.arquivo_docx or revisao_ativa.arquivo_pdf or revisao_ativa.content_html %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-send me-1 text-primary"></i>Enviar para Aprovação
+      </div>
+      <div class="card-body py-2">
+        <p class="small text-muted mb-2">Confirme que o conteúdo está pronto e encaminhe para aprovação.</p>
+        <form method="POST"
+              action="{{ url_for('documentos.enviar_para_aprovacao', id=doc.id, rev_id=revisao_ativa.id) }}">
+          {{ upload_docx_form.hidden_tag() }}
+          <button type="submit" class="btn btn-sm btn-primary w-100">
+            <i class="bi bi-send me-1"></i>Enviar para Aprovação
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+
+    {% endif %}
+
+    {# ── Aguardando aprovação ──────────────────────────────────────────────── #}
+    {% if revisao_ativa and revisao_ativa.status == 'Aguardando aprovação' %}
+    <div class="alert alert-primary small mb-3">
+      <i class="bi bi-patch-check me-2"></i>
+      Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }} aguardando aprovação.
+    </div>
+    {% if revisao_ativa.content_html %}
+    <a href="{{ url_for('documentos.preview_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+       target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-3">
+      <i class="bi bi-eye me-1"></i>Visualizar Documento (Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }})
+    </a>
+    {% endif %}
+    {% if pode_editar %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-upload me-1 text-danger"></i>Substituir PDF da Revisão
+      </div>
+      <div class="card-body py-2">
+        {% if revisao_ativa.arquivo_pdf %}
+          <div class="small text-success mb-2 text-truncate" title="{{ revisao_ativa.arquivo_pdf }}">
+            <i class="bi bi-check-circle me-1"></i>{{ revisao_ativa.arquivo_pdf }}
+          </div>
+        {% endif %}
+        <form method="POST"
+              action="{{ url_for('documentos.upload_pdf_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_pdf_form.hidden_tag() }}
+          {{ upload_pdf_form.arquivo_pdf(class="form-control form-control-sm mb-1", accept=".pdf") }}
+          <button type="submit" class="btn btn-sm btn-outline-danger w-100">
+            <i class="bi bi-upload me-1"></i>Enviar / Substituir PDF
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% if pode_aprovar_doc %}
+    <div class="card border-0 shadow-sm mb-3 border-success">
+      <div class="card-header bg-success-subtle fw-semibold small">
+        <i class="bi bi-patch-check me-1"></i>Aprovar e Publicar Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
+      </div>
+      <div class="card-body">
+        <p class="small text-muted mb-3">Após aprovar, o documento será publicado automaticamente como Vigente.</p>
+        <form method="POST"
+              action="{{ url_for('documentos.aprovar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              novalidate>
+          {{ aprovar_form.hidden_tag() }}
+          <div class="mb-2">
+            {{ aprovar_form.elaborado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ aprovar_form.elaborado_por_id(class="form-select form-select-sm") }}
+          </div>
+          <div class="mb-2">
+            {{ aprovar_form.revisado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ aprovar_form.revisado_por_id(class="form-select form-select-sm") }}
+          </div>
+          <div class="mb-3">
+            {{ aprovar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ aprovar_form.aprovado_por_id(class="form-select form-select-sm") }}
+          </div>
+          <button type="submit" class="btn btn-success w-100"
+                  onclick="return confirm('Confirma a aprovação e publicação imediata desta revisão?')">
+            <i class="bi bi-check-circle me-1"></i>Aprovar e Publicar
+          </button>
+        </form>
+        <hr class="my-2">
+        <form method="POST"
+              action="{{ url_for('documentos.reprovar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              novalidate>
+          {{ reprovar_form.hidden_tag() }}
+          {{ reprovar_form.motivo(class="form-control form-control-sm mb-2", rows="2",
+             placeholder="Motivo da reprovação...") }}
+          {{ reprovar_form.submit(class="btn btn-outline-danger btn-sm w-100") }}
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# ── Aprovado — pronto para publicar ─────────────────────────────────── #}
+    {% if revisao_ativa and revisao_ativa.status == 'Aprovado' %}
+    <div class="alert alert-success small mb-3">
+      <i class="bi bi-check-circle me-2"></i>
+      Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }} aprovada e pronta para publicação.
+    </div>    {% if revisao_ativa.content_html %}
+    <a href="{{ url_for('documentos.preview_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+       target="_blank" class="btn btn-sm btn-outline-secondary w-100 mb-3">
+      <i class="bi bi-eye me-1"></i>Visualizar Documento (Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }})
+    </a>
+    {% endif %}    {% if pode_abrir_revisao or pode_aprovar_doc %}
+    <div class="card border-0 shadow-sm mb-3 border-success">
+      <div class="card-header bg-success-subtle fw-semibold small">
+        <i class="bi bi-journals me-1"></i>Publicar Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
+      </div>
+      <div class="card-body">
+        <form method="POST"
+              action="{{ url_for('documentos.publicar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              novalidate>
+          {{ publicar_revisao_form.hidden_tag() }}
+          <input type="hidden" name="motivo" value="Publicação da revisão Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}">
+          {% if revisao_ativa.content_mode == 'online_editor' %}
+          <div class="alert alert-info small py-2 mb-2">
+            <i class="bi bi-info-circle me-1"></i>PDF será gerado a partir do conteúdo online.
+          </div>
+          {% elif revisao_ativa.arquivo_docx %}
+          <div class="small text-muted mb-2">
+            <i class="bi bi-file-earmark-word me-1"></i>{{ revisao_ativa.arquivo_docx }}
+          </div>
+          {% endif %}
+          <div class="alert alert-warning small mb-2 py-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            O PDF anterior será movido para <strong>obsoletos</strong>.
+          </div>
+          {{ publicar_revisao_form.submit(class="btn btn-success w-100") }}
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# ── Rascunho — importação direta ──────────────────────────────────────── #}
+    {% if doc.status == 'Rascunho' %}
+
+    {% if pode_editar %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-upload me-1 text-primary"></i>Enviar DOCX
+      </div>
+      <div class="card-body py-2">
+        <form method="POST" action="{{ url_for('documentos.upload_docx', id=doc.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_docx_form.hidden_tag() }}
+          {{ upload_docx_form.arquivo_docx(class="form-control form-control-sm mb-2", accept=".docx") }}
+          {{ upload_docx_form.submit(class="btn btn-sm btn-primary w-100") }}
+        </form>
+      </div>
+    </div>
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-upload me-1 text-danger"></i>Enviar PDF
+      </div>
+      <div class="card-body py-2">
+        <form method="POST" action="{{ url_for('documentos.upload_pdf', id=doc.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_pdf_form.hidden_tag() }}
+          {{ upload_pdf_form.arquivo_pdf(class="form-control form-control-sm mb-2", accept=".pdf") }}
+          {{ upload_pdf_form.submit(class="btn btn-sm btn-outline-danger w-100") }}
+        </form>
+      </div>
+    </div>
+
+    {# ── Online Editor card ── #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-pencil-square me-1 text-info"></i>Criar / Editar Conteúdo Online
+      </div>
+      <div class="card-body py-2">
+        <p class="small text-muted mb-2">
+          Use o editor rich-text para criar o procedimento diretamente no navegador,
+          sem precisar de arquivos DOCX/PDF.
+        </p>
+        <a href="{{ url_for('documentos.editor_documento', id=doc.id) }}"
+           class="btn btn-sm btn-info w-100 mb-2">
+          <i class="bi bi-pencil-square me-1"></i>
+          {% if doc.content_html %}Editar Conteúdo Online{% else %}Criar Conteúdo Online{% endif %}
+        </a>
+        {% if doc.content_html %}
+        <a href="{{ url_for('documentos.preview_documento', id=doc.id) }}" target="_blank"
+           class="btn btn-sm btn-outline-secondary w-100">
+          <i class="bi bi-eye me-1"></i>Pré-visualizar
+        </a>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if pode_publicar and (doc.caminho_pdf_vigente or doc.content_html) %}
+    <div class="card border-0 shadow-sm border-success mb-3">
+      <div class="card-header bg-success-subtle border-bottom fw-semibold small text-success">
+        <i class="bi bi-journals me-1"></i>Publicar como Vigente
+      </div>
+      <div class="card-body">
+        {% if tem_aprovadores %}
+          <form method="POST" action="{{ url_for('documentos.publicar_vigente', id=doc.id) }}" novalidate>
+            {{ publicar_form.hidden_tag() }}
+            <input type="hidden" name="motivo" value="Publicação como Vigente">
+            <div class="mb-3">
+              {{ publicar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
+              {{ publicar_form.aprovado_por_id(class="form-select form-select-sm") }}
+            </div>
+            <div class="alert alert-warning small mb-2 py-2">
+              <i class="bi bi-exclamation-triangle me-1"></i>
+              Após publicação o status será <strong>Vigente</strong> e não poderá ser
+              revertido sem abrir uma nova revisão.
+            </div>
+            {{ publicar_form.submit(class="btn btn-success w-100") }}
+          </form>
+        {% else %}
+          <div class="alert alert-warning small mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            Nenhum usuário aprovador cadastrado.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% elif not doc.caminho_pdf_vigente and not doc.content_html %}
+    <div class="alert alert-warning small">
+      <i class="bi bi-exclamation-triangle me-2"></i>
+      Envie um <strong>PDF</strong> ou crie conteúdo pelo <strong>editor online</strong> para publicar como vigente.
+    </div>
+    {% endif %}
+
+    {% endif %}
+
+  </div>
+  <!-- /Right column -->
+
+</div>
+<!-- /row -->
+
+{# ════════════════════════════════════════════════════════════════════════════
+   MODAIS
+════════════════════════════════════════════════════════════════════════════ #}
+
+{# ── Modal: Publicar como Vigente — removido; form agora é inline no card ─── #}
+
+{# ── Modais: todos removidos — forms agora são inline nos cards ── #}
+
+{% endblock %}

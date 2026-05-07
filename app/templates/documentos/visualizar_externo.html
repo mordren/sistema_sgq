@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Visualizar Documento Externo – SGQ{% endblock %}
+
+{% block extra_css %}
+<style>
+  .preview-frame {
+    width: 100%;
+    height: 78vh;
+    border: none;
+    background: #f8f9fa;
+  }
+  .preview-img {
+    max-width: 100%;
+    max-height: 78vh;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Toolbar ── #}
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h2 class="h5 fw-bold mb-0">
+      <i class="bi bi-eye me-2 text-info"></i>Visualizar Documento Externo
+    </h2>
+    <p class="text-muted small mb-0">
+      {% if doc.codigo %}<strong>{{ doc.codigo }}</strong> — {% endif %}{{ doc.titulo }}
+      {% if doc.orgao_emissor %}
+        <span class="text-muted ms-1">({{ doc.orgao_emissor }})</span>
+      {% endif %}
+    </p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    {% if doc.arquivo_pdf and arquivo_url %}
+    <a href="{{ arquivo_url }}" class="btn btn-sm btn-outline-primary" download>
+      <i class="bi bi-download me-1"></i>Baixar
+    </a>
+    {% endif %}
+    <a href="{{ url_for('documentos.documentos_externos') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Voltar
+    </a>
+  </div>
+</div>
+
+{# ── Metadata strip ── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 d-flex flex-wrap gap-4 small text-muted">
+    {% if doc.orgao_emissor %}
+    <span><i class="bi bi-building me-1"></i><strong>Órgão:</strong> {{ doc.orgao_emissor }}</span>
+    {% endif %}
+    <span><i class="bi bi-arrow-repeat me-1"></i><strong>Revisão:</strong> {{ doc.revisao_ou_na }}</span>
+    <span>
+      <i class="bi bi-circle-fill me-1 {% if doc.status == 'Vigente' %}text-success{% else %}text-secondary{% endif %}"></i>
+      <strong>Situação:</strong> {{ doc.status }}
+    </span>
+    {% if doc.enviado_por %}
+    <span><i class="bi bi-person me-1"></i><strong>Enviado por:</strong> {{ doc.enviado_por.nome }}</span>
+    {% endif %}
+    {% if doc.data_envio %}
+    <span><i class="bi bi-calendar me-1"></i><strong>Data de Envio:</strong> {{ doc.data_envio.strftime('%d/%m/%Y') }}</span>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Preview area ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-2">
+
+    {% if not doc.arquivo_pdf %}
+    {# No file registered #}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-file-earmark-x display-4 d-block mb-3 text-warning"></i>
+      <p class="fw-semibold">Arquivo não disponível</p>
+      <p class="small">Nenhum arquivo foi enviado para este documento.</p>
+      <a href="{{ url_for('documentos.documentos_externos') }}"
+         class="btn btn-sm btn-outline-secondary mt-2">
+        <i class="bi bi-arrow-left me-1"></i>Voltar
+      </a>
+    </div>
+
+    {% elif not arquivo_url %}
+    {# File was registered but is missing from disk #}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-exclamation-triangle display-4 d-block mb-3 text-danger"></i>
+      <p class="fw-semibold">Arquivo não encontrado no servidor</p>
+      <p class="small">O arquivo <code>{{ doc.arquivo_pdf }}</code> não está disponível no momento.</p>
+      <a href="{{ url_for('documentos.documentos_externos') }}"
+         class="btn btn-sm btn-outline-secondary mt-2">
+        <i class="bi bi-arrow-left me-1"></i>Voltar
+      </a>
+    </div>
+
+    {% elif tipo_arquivo == 'pdf' %}
+    {# PDF preview via iframe #}
+    <iframe
+      class="preview-frame"
+      src="{{ arquivo_url }}"
+      title="Visualização do documento: {{ doc.titulo }}"
+      allowfullscreen>
+      <p class="text-muted small p-3">
+        Seu navegador não suporta visualização de PDF embutida.
+        <a href="{{ arquivo_url }}">Clique aqui para abrir o arquivo.</a>
+      </p>
+    </iframe>
+
+    {% elif tipo_arquivo == 'imagem' %}
+    {# Image preview #}
+    <div class="text-center p-3 bg-light rounded">
+      <img
+        src="{{ arquivo_url }}"
+        class="preview-img"
+        alt="{{ doc.titulo }}"
+      >
+    </div>
+
+    {% else %}
+    {# Unsupported format #}
+    <div class="text-center text-muted py-5">
+      <i class="bi bi-file-earmark-code display-4 d-block mb-3 text-secondary"></i>
+      <p class="fw-semibold">Visualização indisponível para este tipo de arquivo</p>
+      <p class="small">
+        Este tipo de arquivo não pode ser visualizado diretamente no sistema.<br>
+        Utilize o botão <strong>Baixar</strong> para abrir o arquivo no seu computador.
+      </p>
+      {% if arquivo_url %}
+      <a href="{{ arquivo_url }}" class="btn btn-primary btn-sm mt-2" download>
+        <i class="bi bi-download me-1"></i>Baixar
+      </a>
+      {% endif %}
+      <a href="{{ url_for('documentos.documentos_externos') }}"
+         class="btn btn-outline-secondary btn-sm mt-2 ms-2">
+        <i class="bi bi-arrow-left me-1"></i>Voltar
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}

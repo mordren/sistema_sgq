@@ -1,0 +1,90 @@
+# .gitignore gerado / atualizado — padrões para Python/Flask
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Environment / secrets
+.env
+*.env
+
+# Flask / SQLite databases
+instance/
+*.db
+*.sqlite3
+
+# Document storage (ignore files, keep folder structure with .gitkeep if used)
+storage/
+storage/backups/
+storage/documentos/
+storage/exportacoes/
+!storage/**/.gitkeep
+
+# Flask-Migrate
+migrations/
+
+# IDE / editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Test / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Logs
+*.log
+
+# Node / front-end
+node_modules/
+static/.sass-cache
+
+# Type checkers
+.mypy_cache/
+
+# Keys / certs
+*.pem
+*.key
+
+# Misc
+*.swp
+*.swo
+
+# Local settings
+.local_settings.py
+
+# End of file

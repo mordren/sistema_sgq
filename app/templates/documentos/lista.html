@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Documentos – SGQ{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-file-earmark-text me-2 text-primary"></i>Lista de Documentos
+    </h2>
+    <p class="text-muted small mb-0">SGQ CSV Cascavel – todos os documentos cadastrados</p>
+  </div>
+  {% if current_user.pode_editar_documentos() %}
+  <a href="{{ url_for('documentos.novo') }}" class="btn btn-primary">
+    <i class="bi bi-file-earmark-plus me-2"></i>Novo Documento
+  </a>
+  {% endif %}
+</div>
+
+<!-- ── Filter ──────────────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <form method="GET" action="{{ url_for('documentos.lista') }}" class="row g-2 align-items-end">
+      <div class="col-12 col-sm-6 col-md-4">
+        <label class="form-label small fw-semibold mb-1">
+          <i class="bi bi-search me-1"></i>Pesquisar
+        </label>
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="Código ou título…" value="{{ q_f }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Tipo</label>
+        <select name="tipo" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for tipo in tipos %}
+            <option value="{{ tipo }}" {% if tipo == tipo_f %}selected{% endif %}>{{ tipo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Status</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for s in status_list %}
+            <option value="{{ s }}" {% if s == status_f %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-funnel me-1"></i>Filtrar
+        </button>
+        <a href="{{ url_for('documentos.lista') }}" class="btn btn-outline-secondary btn-sm"
+           title="Limpar filtros">
+          <i class="bi bi-x-circle"></i>
+        </a>
+        <a href="{{ url_for('documentos.lista_mestra') }}"
+           class="btn btn-outline-success btn-sm" title="Lista Mestra">
+          <i class="bi bi-list-check"></i>
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Results ─────────────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-2">
+    <span class="small text-muted">
+      <i class="bi bi-grid me-1"></i>
+      <strong>{{ pagination.total }}</strong> documento(s) encontrado(s)
+      {% if tipo_f or status_f or q_f %}
+        <span class="text-muted"> — filtro ativo</span>
+      {% endif %}
+    </span>
+    <span class="small text-muted">
+      Página {{ pagination.page }} de {{ pagination.pages or 1 }}
+    </span>
+  </div>
+
+  {% if documentos %}
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="px-3 text-nowrap">Código</th>
+          <th class="text-nowrap">Tipo</th>
+          <th>Título</th>
+          <th class="text-center text-nowrap">Rev.</th>
+          <th class="text-center text-nowrap">Status</th>
+          <th class="text-center text-nowrap d-none d-md-table-cell">Trein.</th>
+          <th class="text-end pe-3 text-nowrap d-none d-lg-table-cell">Aprovação</th>
+          <th class="text-center text-nowrap">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in documentos %}
+        <tr>
+          <td class="px-3">
+            <a href="{{ url_for('documentos.detalhe', id=doc.id) }}"
+               class="text-decoration-none fw-semibold text-primary font-monospace small">
+              {{ doc.codigo }}
+            </a>
+          </td>
+          <td>
+            <span class="badge bg-light text-dark border small">{{ doc.tipo_documento }}</span>
+          </td>
+          <td>
+            <span class="text-truncate d-block" style="max-width:280px"
+                  title="{{ doc.titulo }}">{{ doc.titulo }}</span>
+          </td>
+          <td class="text-center">
+            <span class="badge bg-light text-secondary border font-monospace small">
+              {{ doc.revisao_formatada }}
+            </span>
+          </td>
+          <td class="text-center">
+            <span class="badge bg-{{ doc.badge_status }}">{{ doc.status }}</span>
+          </td>
+          <td class="text-center d-none d-md-table-cell">
+            {% if doc.requer_treinamento %}
+              <i class="bi bi-mortarboard-fill text-warning" title="Requer treinamento"></i>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3 small text-muted d-none d-lg-table-cell">
+            {{ doc.data_aprovacao.strftime('%d/%m/%Y') if doc.data_aprovacao else '—' }}
+          </td>
+          <td class="text-center">
+            <div class="btn-group btn-group-sm">
+              <a href="{{ url_for('documentos.detalhe', id=doc.id) }}"
+                 class="btn btn-outline-secondary" title="Ver detalhes">
+                <i class="bi bi-eye"></i>
+              </a>
+              {% if doc.caminho_pdf_vigente %}
+              <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
+                 class="btn btn-outline-danger" title="Abrir PDF" target="_blank">
+                <i class="bi bi-file-pdf"></i>
+              </a>
+              {% endif %}
+              {% if current_user.pode_editar_documentos() and doc.status != 'Vigente' %}
+              <a href="{{ url_for('documentos.editar', id=doc.id) }}"
+                 class="btn btn-outline-primary" title="Editar metadados">
+                <i class="bi bi-pencil"></i>
+              </a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if pagination.pages > 1 %}
+  <div class="card-footer bg-white border-top">
+    <nav aria-label="Paginação">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('documentos.lista', page=pagination.prev_num, q=q_f, tipo=tipo_f, status=status_f) }}">
+            &laquo;
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link"
+                 href="{{ url_for('documentos.lista', page=p, q=q_f, tipo=tipo_f, status=status_f) }}">
+                {{ p }}
+              </a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('documentos.lista', page=pagination.next_num, q=q_f, tipo=tipo_f, status=status_f) }}">
+            &raquo;
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-folder-x display-4 d-block mb-3"></i>
+    <p class="mb-1">Nenhum documento encontrado.</p>
+    {% if tipo_f or status_f or q_f %}
+      <a href="{{ url_for('documentos.lista') }}" class="btn btn-sm btn-outline-secondary mt-2">
+        <i class="bi bi-x me-1"></i>Limpar filtros
+      </a>
+    {% elif current_user.pode_editar_documentos() %}
+      <a href="{{ url_for('documentos.novo') }}" class="btn btn-sm btn-primary mt-2">
+        <i class="bi bi-plus me-1"></i>Cadastrar primeiro documento
+      </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}Login – SGQ CSV Cascavel{% endblock %}
+
+{% block auth_content %}
+<div class="min-vh-100 d-flex align-items-center justify-content-center login-bg">
+  <div class="login-card card shadow-lg border-0">
+
+    <!-- Header -->
+    <div class="card-header login-header text-center py-4">
+      <i class="bi bi-shield-check display-4 text-white mb-2 d-block"></i>
+      <h1 class="h4 text-white mb-0 fw-bold">SGQ CSV Cascavel</h1>
+      <p class="text-white-50 small mt-1 mb-0">Sistema de Gestão da Qualidade</p>
+    </div>
+
+    <div class="card-body p-4">
+
+      <!-- Flash messages inside login card -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show"
+                 role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
+        {{ form.hidden_tag() }}
+
+        <!-- E-mail -->
+        <div class="mb-3">
+          <label for="email" class="form-label fw-semibold">
+            <i class="bi bi-envelope me-1"></i>{{ form.email.label.text }}
+          </label>
+          {{ form.email(
+              class="form-control" ~ (" is-invalid" if form.email.errors else ""),
+              id="email",
+              placeholder="usuario@csvcascavel.com.br",
+              autocomplete="email"
+          ) }}
+          {% for error in form.email.errors %}
+            <div class="invalid-feedback">{{ error }}</div>
+          {% endfor %}
+        </div>
+
+        <!-- Senha -->
+        <div class="mb-3">
+          <label for="senha" class="form-label fw-semibold">
+            <i class="bi bi-lock me-1"></i>{{ form.senha.label.text }}
+          </label>
+          <div class="input-group">
+            {{ form.senha(
+                class="form-control" ~ (" is-invalid" if form.senha.errors else ""),
+                id="senha",
+                placeholder="••••••••",
+                autocomplete="current-password"
+            ) }}
+            <button class="btn btn-outline-secondary" type="button" id="toggle-senha"
+                    title="Mostrar/ocultar senha">
+              <i class="bi bi-eye" id="toggle-senha-icon"></i>
+            </button>
+            {% for error in form.senha.errors %}
+              <div class="invalid-feedback">{{ error }}</div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Lembrar de mim -->
+        <div class="mb-4 form-check">
+          {{ form.lembrar(class="form-check-input", id="lembrar") }}
+          <label class="form-check-label" for="lembrar">{{ form.lembrar.label.text }}</label>
+        </div>
+
+        <!-- Submit -->
+        <div class="d-grid">
+          {{ form.submit(class="btn btn-sgq-primary btn-lg fw-semibold") }}
+        </div>
+      </form>
+    </div>
+
+    <div class="card-footer text-center py-3 bg-light">
+      <small class="text-muted">
+        <i class="bi bi-lock-fill me-1"></i>
+        Acesso restrito a usuários autorizados
+      </small>
+    </div>
+
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+  // Toggle password visibility
+  document.getElementById('toggle-senha').addEventListener('click', function () {
+    const input = document.getElementById('senha');
+    const icon  = document.getElementById('toggle-senha-icon');
+    if (input.type === 'password') {
+      input.type = 'text';
+      icon.classList.replace('bi-eye', 'bi-eye-slash');
+    } else {
+      input.type = 'password';
+      icon.classList.replace('bi-eye-slash', 'bi-eye');
+    }
+  });
+</script>
+{% endblock %}
+{% endblock %}

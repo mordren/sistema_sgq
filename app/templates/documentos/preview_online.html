@@ -1,0 +1,362 @@
+{% extends 'base.html' %}
+
+{% block title %}Pré-visualização — {{ codigo }} | SGQ CSV Cascavel{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* ── Print preview styles — match xhtml2pdf output ── */
+  .preview-wrapper {
+    max-width: 210mm;
+    margin: 0 auto;
+    background: #fff;
+    padding: 20mm 20mm 25mm 20mm;
+    box-shadow: 0 0 12px rgba(0,0,0,.15);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10.5pt;
+    color: #000;
+    line-height: 1.5;
+  }
+  /* Header table */
+  .doc-header {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+  }
+  .doc-header td {
+    border: 1px solid #000;
+    padding: 5px 8px;
+    vertical-align: middle;
+  }
+  .org-name {
+    font-size: 12pt;
+    font-weight: bold;
+    text-align: center;
+    width: 28%;
+  }
+  .doc-title-cell {
+    font-size: 13pt;
+    font-weight: bold;
+    text-align: center;
+  }
+  .meta-label { font-weight: bold; }
+  /* Signatories */
+  .signatories {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 18px;
+  }
+  .signatories td {
+    border: 1px solid #000;
+    padding: 5px 8px;
+    width: 33.33%;
+    font-size: 9pt;
+  }
+  /* Content */
+  .content h1 { font-size: 12pt; font-weight: bold; margin: 14px 0 6px; }
+  .content h2 { font-size: 11pt; font-weight: bold; margin: 12px 0 5px; }
+  .content h3 { font-size: 10pt; font-weight: bold; margin: 10px 0 4px; }
+  .content p  { margin: 6px 0; }
+  .content ul, .content ol { margin: 6px 0 6px 20px; padding: 0; }
+  .content li { margin: 3px 0; }
+  .content table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+    margin: 8px 0;
+    font-size: 9pt;
+    word-wrap: break-word;
+  }
+  .content table td,
+  .content table th {
+    border: 1px solid #888;
+    padding: 4px 6px;
+    vertical-align: top;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+  .content table th {
+    background-color: #e8e8e8;
+    font-weight: bold;
+    text-align: left;
+  }
+  /* Revision history table */
+  .rev-history {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 14px;
+    font-size: 8.5pt;
+  }
+  .rev-history th {
+    background-color: #d0d0d0;
+    border: 1px solid #000;
+    padding: 3px 5px;
+    font-weight: bold;
+    text-align: center;
+  }
+  .rev-history td {
+    border: 1px solid #000;
+    padding: 3px 5px;
+    vertical-align: top;
+  }
+  /* Print: hide toolbar, full-page preview */
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff; }
+    .preview-wrapper {
+      box-shadow: none;
+      padding: 0;
+      max-width: none;
+      margin: 0;
+    }
+  }
+  /* Screen toolbar */
+  .preview-toolbar {
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.5rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Toolbar (hidden on print) ── #}
+<div class="preview-toolbar no-print mb-3">
+  <span class="fw-semibold">
+    <i class="bi bi-eye me-1"></i>Pré-visualização do Documento
+  </span>
+  <span class="ms-auto d-flex gap-2 flex-wrap align-items-center">
+
+    {# ── Aprovar revisão (Aguardando aprovação) ── #}
+    {% if revisao_ativa and revisao_ativa.status == 'Aguardando aprovação' and pode_aprovar_doc %}
+    <button class="btn btn-sm btn-success" type="button"
+            data-bs-toggle="collapse" data-bs-target="#previewAprovarPanel">
+      <i class="bi bi-patch-check me-1"></i>Aprovar
+    </button>
+    <button class="btn btn-sm btn-outline-danger" type="button"
+            data-bs-toggle="collapse" data-bs-target="#previewReprovarPanel">
+      <i class="bi bi-x-octagon me-1"></i>Reprovar
+    </button>
+    {% endif %}
+
+    {# ── Publicar revisão (Aprovado) ── #}
+    {% if revisao_ativa and revisao_ativa.status == 'Aprovado' and (pode_editar or pode_aprovar_doc) %}
+    <form method="POST"
+          action="{{ url_for('documentos.publicar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+          class="d-inline">
+      {{ publicar_revisao_form.hidden_tag() }}
+      <input type="hidden" name="motivo" value="Publicação Rev{{ '%02d' % revisao_ativa.numero_revisao }}">
+      <button type="submit" class="btn btn-sm btn-success">
+        <i class="bi bi-journals me-1"></i>Publicar Revisão
+      </button>
+    </form>
+    {% endif %}
+
+    {# ── Publicar como Vigente (Rascunho sem revisão ativa) ── #}
+    {% if pode_publicar and tem_aprovadores %}
+    <button class="btn btn-sm btn-success" type="button"
+            data-bs-toggle="collapse" data-bs-target="#previewPublicarPanel">
+      <i class="bi bi-journals me-1"></i>Publicar como Vigente
+    </button>
+    {% endif %}
+
+    <button onclick="window.print()" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
+    <a href="{{ back_url }}" class="btn btn-sm btn-outline-danger">
+      <i class="bi bi-arrow-left me-1"></i>Voltar
+    </a>
+  </span>
+</div>
+
+{# ── Painel recolhível: Aprovar ── #}
+{% if revisao_ativa and revisao_ativa.status == 'Aguardando aprovação' and pode_aprovar_doc %}
+<div class="collapse no-print mb-3" id="previewAprovarPanel">
+  <div class="card border-success shadow-sm">
+    <div class="card-header bg-success-subtle fw-semibold small">
+      <i class="bi bi-patch-check me-1"></i>Aprovar Rev{{ '%02d' % revisao_ativa.numero_revisao }}
+    </div>
+    <div class="card-body">
+      <form method="POST"
+            action="{{ url_for('documentos.aprovar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+            novalidate>
+        {{ aprovar_form.hidden_tag() }}
+        <div class="row g-2">
+          <div class="col-md-4">
+            {{ aprovar_form.elaborado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ aprovar_form.elaborado_por_id(class="form-select form-select-sm") }}
+          </div>
+          <div class="col-md-4">
+            {{ aprovar_form.revisado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ aprovar_form.revisado_por_id(class="form-select form-select-sm") }}
+          </div>
+          <div class="col-md-4">
+            {{ aprovar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ aprovar_form.aprovado_por_id(class="form-select form-select-sm") }}
+          </div>
+        </div>
+        <div class="mt-2">
+          {{ aprovar_form.submit(class="btn btn-success btn-sm") }}
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Painel recolhível: Reprovar ── #}
+{% if revisao_ativa and revisao_ativa.status == 'Aguardando aprovação' and pode_aprovar_doc %}
+<div class="collapse no-print mb-3" id="previewReprovarPanel">
+  <div class="card border-danger shadow-sm">
+    <div class="card-header bg-danger-subtle fw-semibold small text-danger">
+      <i class="bi bi-x-octagon me-1"></i>Reprovar Revisão
+    </div>
+    <div class="card-body">
+      <form method="POST"
+            action="{{ url_for('documentos.reprovar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+            novalidate>
+        {{ reprovar_form.hidden_tag() }}
+        {{ reprovar_form.motivo(class="form-control form-control-sm mb-2", rows="2",
+           placeholder="Motivo da reprovação...") }}
+        {{ reprovar_form.submit(class="btn btn-danger btn-sm") }}
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Painel recolhível: Publicar como Vigente ── #}
+{% if pode_publicar and tem_aprovadores %}
+<div class="collapse no-print mb-3" id="previewPublicarPanel">
+  <div class="card border-success shadow-sm">
+    <div class="card-header bg-success-subtle fw-semibold small">
+      <i class="bi bi-journals me-1"></i>Publicar como Vigente
+    </div>
+    <div class="card-body">
+      <form method="POST"
+            action="{{ url_for('documentos.publicar_vigente', id=doc.id) }}"
+            novalidate>
+        {{ publicar_form.hidden_tag() }}
+        <input type="hidden" name="motivo" value="Publicação como Vigente">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-6">
+            {{ publicar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
+            {{ publicar_form.aprovado_por_id(class="form-select form-select-sm") }}
+          </div>
+          <div class="col-md-6">
+            {{ publicar_form.submit(class="btn btn-success btn-sm w-100") }}
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Document preview ── #}
+<div class="preview-wrapper">
+
+  {# Header table #}
+  <table class="doc-header">
+    <tr>
+      <td class="org-name" rowspan="3">
+        {# Show logo if it exists, otherwise show organization name #}
+        <img src="{{ url_for('static', filename='images/logo.png') }}"
+             style="max-width:100%;max-height:80px;object-fit:contain;"
+             onerror="this.style.display='none';document.getElementById('org-name-text').style.display='block';"
+             alt="Logo">
+        <span id="org-name-text" style="display:none;font-size:11pt;font-weight:bold;">CSV Cascavel</span>
+      </td>
+      <td class="doc-title-cell" colspan="2">{{ titulo }}</td>
+    </tr>
+    <tr>
+      <td><span class="meta-label">Código:</span> {{ codigo }}</td>
+      <td><span class="meta-label">Revisão:</span> Rev{{ '%02d' % revisao_num }}</td>
+    </tr>
+    <tr>
+      <td>
+        <span class="meta-label">Data de Aprovação:</span>
+        {% if revisao and revisao.data_aprovacao %}
+          {{ revisao.data_aprovacao.strftime('%d/%m/%Y') }}
+        {% elif revisao and revisao.data_elaboracao %}
+          <span class="text-muted">(elaborado em {{ revisao.data_elaboracao.strftime('%d/%m/%Y') }})</span>
+        {% elif doc.data_aprovacao %}
+          {{ doc.data_aprovacao.strftime('%d/%m/%Y') }}
+        {% else %}
+          —
+        {% endif %}
+      </td>
+      <td><span class="meta-label">Status:</span> {{ status }}</td>
+    </tr>
+  </table>
+
+  {# Signatories #}
+  <table class="signatories">
+    <tr>
+      <td>
+        <span class="meta-label">Elaborado por:</span><br/>
+        {% if revisao and revisao.elaborado_por %}
+          {{ revisao.elaborado_por.nome }}
+        {% elif doc.elaborado_por %}
+          {{ doc.elaborado_por.nome }}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        <span class="meta-label">Revisado por:</span><br/>
+        {% if revisao and revisao.revisado_por %}
+          {{ revisao.revisado_por.nome }}
+        {% elif doc.revisado_por %}
+          {{ doc.revisado_por.nome }}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        <span class="meta-label">Aprovado por:</span><br/>
+        {% if revisao and revisao.aprovado_por %}
+          {{ revisao.aprovado_por.nome }}
+        {% elif doc.aprovado_por %}
+          {{ doc.aprovado_por.nome }}
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {# Revision history table #}
+  {% if historico_revisoes %}
+  <p style="font-weight:bold;font-size:9pt;margin:10px 0 3px;">Histórico de Revisões</p>
+  <table class="rev-history">
+    <thead>
+      <tr>
+        <th style="width:8%">Rev</th>
+        <th style="width:12%">Data</th>
+        <th style="width:42%">Descrição das Alterações</th>
+        <th style="width:18%">Item(s) Alterado(s)</th>
+        <th style="width:20%">Elaborado por</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in historico_revisoes %}
+      <tr{% if h.get('em_andamento') %} style="background:#fff8e1;font-style:italic;"{% endif %}>
+        <td style="text-align:center">Rev{{ '%02d' % h.numero }}</td>
+        <td style="text-align:center">
+          {% if h.data %}{{ h.data.strftime('%d/%m/%Y') if h.data is not string else h.data }}{% else %}—{% endif %}
+        </td>
+        <td>{{ h.descricao or '—' }}{% if h.get('em_andamento') %} <span class="text-warning fw-semibold">(em andamento)</span>{% endif %}</td>
+        <td style="text-align:center">{{ h.item or '—' }}</td>
+        <td style="text-align:center">{{ h.elaborado_por or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {# Procedure content #}
+  <div class="content">
+    {{ content_html | safe }}
+  </div>
+
+</div>
+{% endblock %}

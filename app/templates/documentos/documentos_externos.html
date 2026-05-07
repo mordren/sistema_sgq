@@ -1,0 +1,547 @@
+{% extends "base.html" %}
+
+{% block title %}Documentos Externos – SGQ{% endblock %}
+
+{% block content %}
+
+{# ── Toolbar ── #}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-globe2 me-2 text-info"></i>Documentos Externos
+    </h2>
+    <p class="text-muted small mb-0">
+      Portarias, resoluções, normas e demais documentos emitidos por órgãos externos.
+    </p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    {% if pode_editar %}
+    <button class="btn btn-sm btn-primary" type="button"
+            data-bs-toggle="collapse" data-bs-target="#add-form-panel"
+            aria-expanded="false" aria-controls="add-form-panel">
+      <i class="bi bi-plus-lg me-1"></i>Enviar Documento
+    </button>
+    {% endif %}
+    {% if exibir_obsoletos %}
+    <a href="{{ url_for('documentos.documentos_externos', q=q_f, orgao=orgao_f) }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-eye-slash me-1"></i>Ocultar Obsoletos
+    </a>
+    {% else %}
+    <a href="{{ url_for('documentos.documentos_externos', obs='1', q=q_f, orgao=orgao_f) }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-eye me-1"></i>Exibir Obsoletos
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Search / Filter bar ── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <form method="GET" action="{{ url_for('documentos.documentos_externos') }}"
+          class="row g-2 align-items-end">
+      {% if exibir_obsoletos %}
+        <input type="hidden" name="obs" value="1">
+      {% endif %}
+      <div class="col-12 col-sm-5 col-md-4">
+        <label class="form-label small fw-semibold mb-1">
+          <i class="bi bi-search me-1"></i>Código / Título
+        </label>
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="Pesquisar…" value="{{ q_f }}">
+      </div>
+      <div class="col-12 col-sm-5 col-md-4">
+        <label class="form-label small fw-semibold mb-1">Órgão Emissor</label>
+        <input type="text" name="orgao" class="form-control form-control-sm"
+               placeholder="Ex: INMETRO, ABNT…" value="{{ orgao_f }}">
+      </div>
+      <div class="col-12 col-sm-2 col-md-4 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-funnel me-1"></i>Filtrar
+        </button>
+        <a href="{{ url_for('documentos.documentos_externos', obs='1' if exibir_obsoletos else '0') }}"
+           class="btn btn-outline-secondary btn-sm" title="Limpar filtros">
+          <i class="bi bi-x-circle"></i>
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Add form (collapsed by default, opens on "Enviar Documento") ── #}
+{% if pode_editar %}
+<div class="collapse mb-4" id="add-form-panel">
+  <div class="card border-primary shadow-sm">
+    <div class="card-header bg-primary text-white fw-bold small">
+      <i class="bi bi-plus-circle me-1"></i>Registrar Novo Documento Externo
+    </div>
+    <div class="card-body">
+      <form method="POST"
+            action="{{ url_for('documentos.documentos_externos') }}"
+            enctype="multipart/form-data"
+            novalidate>
+        {{ form.hidden_tag() }}
+        <div class="row g-3">
+
+          <div class="col-md-4">
+            {{ form.codigo.label(class='form-label small fw-semibold') }}
+            {{ form.codigo(class='form-control form-control-sm',
+                           placeholder='Ex: Portaria 149/2022, NBR 14040:2023') }}
+            <div class="form-text small text-muted">{{ form.codigo.description }}</div>
+            {% for e in form.codigo.errors %}
+              <div class="invalid-feedback d-block">{{ e }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="col-md-8">
+            {{ form.titulo.label(class='form-label small fw-semibold') }}
+            {{ form.titulo(class='form-control form-control-sm',
+                           placeholder='Título completo do documento') }}
+            {% for e in form.titulo.errors %}
+              <div class="invalid-feedback d-block">{{ e }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="col-md-4">
+            {{ form.orgao_emissor.label(class='form-label small fw-semibold') }}
+            {{ form.orgao_emissor(class='form-control form-control-sm',
+                                  placeholder='Ex: INMETRO, SENATRAN, ABNT') }}
+          </div>
+
+          <div class="col-md-2">
+            {{ form.revisao.label(class='form-label small fw-semibold') }}
+            {{ form.revisao(class='form-control form-control-sm',
+                            placeholder='Ex: 2024, Rev01') }}
+            <div class="form-text small text-muted">{{ form.revisao.description }}</div>
+          </div>
+
+          <div class="col-md-6">
+            {{ form.arquivo.label(class='form-label small fw-semibold') }}
+            {{ form.arquivo(class='form-control form-control-sm') }}
+            {% for e in form.arquivo.errors %}
+              <div class="invalid-feedback d-block">{{ e }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="col-12 d-flex gap-4">
+            <div class="form-check">
+              {{ form.distribuicao_tecnica(class='form-check-input') }}
+              {{ form.distribuicao_tecnica.label(class='form-check-label small') }}
+            </div>
+            <div class="form-check">
+              {{ form.distribuicao_administrativa(class='form-check-input') }}
+              {{ form.distribuicao_administrativa.label(class='form-check-label small') }}
+            </div>
+          </div>
+
+          <div class="col-12">
+            {{ form.observacao.label(class='form-label small fw-semibold') }}
+            {{ form.observacao(class='form-control form-control-sm', rows='2',
+                               placeholder='Observações opcionais…') }}
+          </div>
+
+        </div>
+        <div class="mt-3 d-flex gap-2">
+          {{ form.submit(class='btn btn-primary btn-sm') }}
+          <button type="button" class="btn btn-secondary btn-sm"
+                  data-bs-toggle="collapse" data-bs-target="#add-form-panel">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Documents table ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-sgq-dark text-white d-flex justify-content-between align-items-center">
+    <span class="fw-bold small">
+      <i class="bi bi-globe2 me-2"></i>DOCUMENTOS EXTERNOS CONTROLADOS
+    </span>
+    <span class="badge {{ 'bg-secondary' if exibir_obsoletos else 'bg-success' }} ms-2">
+      {{ docs_externos | length }} documento(s)
+    </span>
+  </div>
+
+  {% if docs_externos %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm align-middle mb-0">
+      <thead>
+        <tr class="table-dark">
+          <th class="text-nowrap px-2">Identificação do Documento</th>
+          <th>Título</th>
+          <th class="text-nowrap">Órgão Emissor / Categoria</th>
+          <th class="text-center text-nowrap">Revisão</th>
+          <th class="text-nowrap">Distribuição</th>
+          <th class="text-center text-nowrap">Situação</th>
+          <th class="text-nowrap">Enviado por</th>
+          <th class="text-center text-nowrap">Data de Envio</th>
+          <th class="text-center text-nowrap">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in docs_externos %}
+        {# ── Main data row ── #}
+        <tr {% if doc.status == 'Obsoleto' %}class="table-secondary"{% endif %}>
+          <td class="px-2">
+            <code class="fw-bold text-info">{{ doc.codigo or '—' }}</code>
+          </td>
+          <td>
+            <span class="small" title="{{ doc.titulo }}">{{ doc.titulo }}</span>
+            {% if doc.observacao %}
+              <br>
+              <span class="text-muted small fst-italic">
+                {{ doc.observacao[:80] }}{% if doc.observacao | length > 80 %}…{% endif %}
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-nowrap small">{{ doc.orgao_emissor or '—' }}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-dark border font-monospace small">
+              {{ doc.revisao_ou_na }}
+            </span>
+          </td>
+          <td class="small text-nowrap">{{ doc.distribuicao_formatada }}</td>
+          <td class="text-center">
+            {% if doc.status == 'Vigente' %}
+              <span class="badge bg-success">Vigente</span>
+            {% else %}
+              <span class="badge bg-secondary">Obsoleto</span>
+            {% endif %}
+          </td>
+          <td class="small text-nowrap">
+            {{ doc.enviado_por.nome if doc.enviado_por else '—' }}
+          </td>
+          <td class="text-center small text-nowrap">
+            {{ doc.data_envio.strftime('%d/%m/%Y') if doc.data_envio else '—' }}
+          </td>
+          <td class="text-center text-nowrap">
+            {% if doc.arquivo_pdf %}
+            {%- set _ext = doc.arquivo_pdf.rsplit('.', 1)[-1].lower() -%}
+            {%- if _ext == 'pdf' -%}{%- set _tipo = 'pdf' -%}
+            {%- elif _ext in ['png', 'jpg', 'jpeg', 'gif', 'webp'] -%}{%- set _tipo = 'imagem' -%}
+            {%- else -%}{%- set _tipo = 'outro' -%}{%- endif -%}
+            <button type="button"
+                    class="btn btn-sm btn-info py-0 px-2 me-1"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalVisualizarExterno"
+                    data-url="{{ url_for('documentos.download_externo', id=doc.id) }}"
+                    data-tipo="{{ _tipo }}"
+                    data-titulo="{{ doc.titulo | e }}"
+                    data-codigo="{{ doc.codigo or '' }}"
+                    data-orgao="{{ doc.orgao_emissor or '' }}"
+                    data-revisao="{{ doc.revisao_ou_na }}"
+                    data-status="{{ doc.status }}"
+                    data-enviado-por="{{ doc.enviado_por.nome if doc.enviado_por else '' }}"
+                    data-data-envio="{{ doc.data_envio.strftime('%d/%m/%Y') if doc.data_envio else '' }}"
+                    data-arquivo="{{ doc.arquivo_pdf }}"
+                    title="Visualizar">
+              <i class="bi bi-eye-fill small"></i> Visualizar
+            </button>
+            <a href="{{ url_for('documentos.download_externo', id=doc.id) }}"
+               class="btn btn-sm btn-outline-secondary py-0 px-1 me-1"
+               title="Baixar" download>
+              <i class="bi bi-download small"></i>
+            </a>
+            {% endif %}
+            {% if pode_editar and doc.status == 'Vigente' %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#edit-{{ doc.id }}"
+                    aria-expanded="false"
+                    title="Editar">
+              <i class="bi bi-pencil small"></i> Editar
+            </button>
+            {% endif %}
+          </td>
+        </tr>
+
+        {# ── Inline edit row (collapsed) ── #}
+        {% if pode_editar and doc.status == 'Vigente' %}
+        <tr>
+          <td colspan="9" class="p-0 border-0">
+            <div class="collapse" id="edit-{{ doc.id }}">
+              <div class="bg-light border-start border-primary border-3 p-3">
+                <p class="fw-semibold small mb-2 text-primary">
+                  <i class="bi bi-pencil me-1"></i>Editar: {{ doc.codigo or doc.titulo }}
+                </p>
+                <form method="POST"
+                      action="{{ url_for('documentos.editar_externo', id=doc.id) }}"
+                      enctype="multipart/form-data">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <div class="row g-2">
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Identificação do Documento</label>
+                      <input type="text" name="codigo" class="form-control form-control-sm"
+                             value="{{ doc.codigo or '' }}" maxlength="50"
+                             placeholder="Ex: Portaria 149/2022">
+                    </div>
+                    <div class="col-md-5">
+                      <label class="form-label small fw-semibold">Título <span class="text-danger">*</span></label>
+                      <input type="text" name="titulo" class="form-control form-control-sm"
+                             value="{{ doc.titulo }}" maxlength="200" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Órgão Emissor / Categoria</label>
+                      <input type="text" name="orgao_emissor" class="form-control form-control-sm"
+                             value="{{ doc.orgao_emissor or '' }}" maxlength="100">
+                    </div>
+                    <div class="col-md-1">
+                      <label class="form-label small fw-semibold">Revisão</label>
+                      <input type="text" name="revisao" class="form-control form-control-sm"
+                             value="{{ doc.revisao or '' }}" maxlength="20">
+                    </div>
+                    <div class="col-md-5">
+                      <label class="form-label small fw-semibold">Substituir Arquivo</label>
+                      <input type="file" name="arquivo" class="form-control form-control-sm"
+                             accept=".pdf,.docx,.doc,.xlsx,.xls">
+                      {% if doc.arquivo_pdf %}
+                      <div class="form-text small text-muted">
+                        Atual: <code>{{ doc.arquivo_pdf }}</code>
+                      </div>
+                      {% endif %}
+                    </div>
+                    <div class="col-md-7 d-flex align-items-end gap-4 pb-1">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox"
+                               name="distribuicao_tecnica"
+                               id="dt-{{ doc.id }}"
+                               {{ 'checked' if doc.distribuicao_tecnica }}>
+                        <label class="form-check-label small" for="dt-{{ doc.id }}">
+                          Distribuição na Área Técnica
+                        </label>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox"
+                               name="distribuicao_administrativa"
+                               id="da-{{ doc.id }}"
+                               {{ 'checked' if doc.distribuicao_administrativa }}>
+                        <label class="form-check-label small" for="da-{{ doc.id }}">
+                          Distribuição na Área Administrativa
+                        </label>
+                      </div>
+                    </div>
+                    <div class="col-12">
+                      <label class="form-label small fw-semibold">Observação</label>
+                      <textarea name="observacao" class="form-control form-control-sm"
+                                rows="2">{{ doc.observacao or '' }}</textarea>
+                    </div>
+                  </div>
+                  <div class="mt-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary">
+                      <i class="bi bi-check-lg me-1"></i>Salvar
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#edit-{{ doc.id }}">
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-globe2 display-4 d-block mb-3"></i>
+    <p class="mb-1">
+      Nenhum documento externo
+      {% if not exibir_obsoletos %}<strong>vigente</strong> {% endif %}encontrado.
+    </p>
+    {% if pode_editar %}
+    <button class="btn btn-sm btn-primary mt-2" type="button"
+            data-bs-toggle="collapse" data-bs-target="#add-form-panel">
+      <i class="bi bi-plus me-1"></i>Enviar Documento
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card-footer bg-white text-muted small py-2 text-end">
+    <i class="bi bi-info-circle me-1"></i>
+    Documentos vigentes aparecem automaticamente na Lista Mestra.
+  </div>
+</div>
+
+{# ═══════════════════════════════════════════════════════════
+   Modal de Visualização de Documento Externo
+   ═══════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="modalVisualizarExterno" tabindex="-1"
+     aria-labelledby="modalVisualizarExternoLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg overflow-hidden">
+
+      {# ── Header ── #}
+      <div class="modal-header py-2 px-3" style="background: linear-gradient(135deg,#0d8fa0 0%,#0a6f7e 100%);">
+        <div class="d-flex align-items-center gap-2 overflow-hidden flex-grow-1 me-2">
+          <i class="bi bi-file-earmark-text text-white fs-5 flex-shrink-0"></i>
+          <div class="overflow-hidden">
+            <h6 class="modal-title mb-0 text-white text-truncate fw-bold"
+                id="modalVisualizarExternoLabel">Visualizar Documento</h6>
+            <small class="text-white opacity-75" id="modalVisualizarOrgao"></small>
+          </div>
+        </div>
+        <button type="button" class="btn-close btn-close-white ms-1"
+                data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+
+      {# ── Metadata pills ── #}
+      <div class="px-3 py-2 d-flex flex-wrap gap-2 align-items-center border-bottom bg-light"
+           id="modalMetaStrip" style="min-height: 42px;">
+        {# populated by JS #}
+      </div>
+
+      {# ── Preview area ── #}
+      <div class="modal-body p-0 position-relative" style="min-height: 65vh; background:#1a1a2e;">
+        <div id="modalPreviewSpinner"
+             class="position-absolute top-50 start-50 translate-middle text-center">
+          <div class="spinner-border text-info" style="width:3rem;height:3rem;"></div>
+          <p class="text-white opacity-75 small mt-2">Carregando…</p>
+        </div>
+        <div id="modalPreviewContent" class="h-100"></div>
+      </div>
+
+      {# ── Footer ── #}
+      <div class="modal-footer py-2 border-top">
+        <a id="modalBtnBaixar" href="#" class="btn btn-primary btn-sm" download>
+          <i class="bi bi-download me-1"></i>Baixar arquivo
+        </a>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">
+          <i class="bi bi-x-lg me-1"></i>Fechar
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  const modalEl     = document.getElementById('modalVisualizarExterno');
+  const spinner     = document.getElementById('modalPreviewSpinner');
+  const content     = document.getElementById('modalPreviewContent');
+  const metaStrip   = document.getElementById('modalMetaStrip');
+  const labelEl     = document.getElementById('modalVisualizarExternoLabel');
+  const orgaoEl     = document.getElementById('modalVisualizarOrgao');
+  const btnBaixar   = document.getElementById('modalBtnBaixar');
+
+  const BADGE_STATUS = {
+    'Vigente':  'bg-success',
+    'Obsoleto': 'bg-secondary',
+  };
+
+  function pill(icon, label, value, extraClass = 'bg-light text-dark border') {
+    if (!value) return '';
+    return `<span class="badge rounded-pill ${extraClass} small fw-normal d-flex align-items-center gap-1 py-1 px-2">`
+         + `<i class="bi bi-${icon}"></i><span class="fw-semibold">${label}:</span> ${value}</span>`;
+  }
+
+  function showSpinner() {
+    spinner.classList.remove('d-none');
+    content.innerHTML = '';
+  }
+
+  function hideSpinner() {
+    spinner.classList.add('d-none');
+  }
+
+  modalEl.addEventListener('show.bs.modal', function (e) {
+    const btn         = e.relatedTarget;
+    const url         = btn.dataset.url;
+    const tipo        = btn.dataset.tipo;
+    const titulo      = btn.dataset.titulo;
+    const codigo      = btn.dataset.codigo;
+    const orgao       = btn.dataset.orgao;
+    const revisao     = btn.dataset.revisao;
+    const status      = btn.dataset.status;
+    const enviadoPor  = btn.dataset.enviadoPor;
+    const dataEnvio   = btn.dataset.dataEnvio;
+    const arquivo     = btn.dataset.arquivo;
+
+    // Header
+    labelEl.textContent = (codigo ? codigo + '  —  ' : '') + titulo;
+    orgaoEl.textContent = orgao || '';
+
+    // Meta strip
+    const statusClass = BADGE_STATUS[status] || 'bg-secondary';
+    metaStrip.innerHTML = [
+      pill('arrow-repeat',    'Revisão',     revisao),
+      pill('circle-fill',     'Situação',    status,      statusClass + ' text-white'),
+      pill('building',        'Órgão',       orgao),
+      pill('person-fill',     'Enviado por', enviadoPor),
+      pill('calendar-check',  'Data',        dataEnvio),
+      pill('file-earmark',    'Arquivo',     arquivo,     'bg-info-subtle text-info border-info-subtle'),
+    ].join('');
+
+    // Download button
+    btnBaixar.href     = url;
+    btnBaixar.download = arquivo || 'documento';
+    btnBaixar.classList.toggle('d-none', !url);
+
+    // Preview
+    showSpinner();
+
+    if (tipo === 'pdf') {
+      const iframe = document.createElement('iframe');
+      iframe.src   = url;
+      iframe.style.cssText = 'width:100%;height:70vh;border:none;display:block;';
+      iframe.onload = hideSpinner;
+      content.appendChild(iframe);
+    } else if (tipo === 'imagem') {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'text-center p-3 h-100';
+      wrapper.style.background = '#f8f9fa';
+      const img = document.createElement('img');
+      img.src   = url;
+      img.alt   = titulo;
+      img.style.cssText = 'max-width:100%;max-height:68vh;object-fit:contain;border-radius:6px;box-shadow:0 4px 24px rgba(0,0,0,.18);';
+      img.onload = hideSpinner;
+      img.onerror = hideSpinner;
+      wrapper.appendChild(img);
+      content.appendChild(wrapper);
+    } else {
+      hideSpinner();
+      content.innerHTML = `
+        <div class="d-flex flex-column align-items-center justify-content-center text-center py-5 px-4" style="min-height:55vh;">
+          <div class="rounded-circle bg-secondary bg-opacity-10 p-4 mb-3">
+            <i class="bi bi-file-earmark-code" style="font-size:3.5rem;color:#6c757d;"></i>
+          </div>
+          <h5 class="text-white mb-2">Prévia não disponível</h5>
+          <p class="text-white opacity-75 small mb-4">
+            Este tipo de arquivo (${arquivo.split('.').pop().toUpperCase()})
+            não pode ser exibido diretamente no navegador.<br>
+            Use o botão <strong>Baixar arquivo</strong> para abrir no seu computador.
+          </p>
+          <a href="${url}" class="btn btn-primary" download="${arquivo}">
+            <i class="bi bi-download me-2"></i>Baixar arquivo
+          </a>
+        </div>`;
+    }
+  });
+
+  // Clean up when modal closes so iframe stops loading
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    content.innerHTML = '';
+    metaStrip.innerHTML = '';
+    spinner.classList.remove('d-none');
+  });
+}());
+</script>
+{% endblock %}

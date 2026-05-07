@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard – SGQ CSV Cascavel{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard
+    </h2>
+    <p class="text-muted small mb-0">
+      Visão geral do Sistema de Gestão da Qualidade &mdash; CSV Cascavel
+    </p>
+  </div>
+  <div class="text-end text-muted small">
+    <i class="bi bi-calendar3 me-1"></i>
+    <span id="data-atual"></span>
+  </div>
+</div>
+
+<!-- ── Pending items alerts ─────────────────────────────────────────────────── -->
+{% if pendentes %}
+  <div class="mb-4">
+    {% for item in pendentes %}
+      <div class="alert alert-{{ item.tipo }} d-flex align-items-center gap-2 py-2 mb-2">
+        <i class="bi bi-{{ item.icone }} flex-shrink-0"></i>
+        <span class="small">{{ item.mensagem }}</span>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<!-- ── KPI cards ────────────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+
+  <!-- Em Elaboração (Rascunho) -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-secondary-subtle text-secondary rounded-circle mx-auto mb-2">
+          <i class="bi bi-pencil-square"></i>
+        </div>
+        <div class="kpi-value text-secondary">{{ total_em_elaboracao }}</div>
+        <div class="kpi-label">Em Elaboração</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vigentes -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-success-subtle text-success rounded-circle mx-auto mb-2">
+          <i class="bi bi-journals"></i>
+        </div>
+        <div class="kpi-value text-success">{{ total_vigentes }}</div>
+        <div class="kpi-label">Vigentes</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Em Revisão -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-warning-subtle text-warning rounded-circle mx-auto mb-2">
+          <i class="bi bi-arrow-repeat"></i>
+        </div>
+        <div class="kpi-value text-warning">{{ total_em_revisao }}</div>
+        <div class="kpi-label">Em Revisão</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Aguardando Aprovação -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-primary-subtle text-primary rounded-circle mx-auto mb-2">
+          <i class="bi bi-patch-check"></i>
+        </div>
+        <div class="kpi-value text-primary">{{ total_aguardando_aprovacao }}</div>
+        <div class="kpi-label">Ag. Aprovação</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Obsoletos -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-dark bg-opacity-10 text-dark rounded-circle mx-auto mb-2">
+          <i class="bi bi-archive"></i>
+        </div>
+        <div class="kpi-value text-dark">{{ total_obsoletos }}</div>
+        <div class="kpi-label">Obsoletos</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Requer Treinamento -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-danger-subtle text-danger rounded-circle mx-auto mb-2">
+          <i class="bi bi-mortarboard"></i>
+        </div>
+        <div class="kpi-value text-danger">{{ total_requer_treinamento }}</div>
+        <div class="kpi-label">Requer Trein.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Externos Aplicáveis -->
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="card kpi-card border-0 shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="kpi-icon bg-info-subtle text-info rounded-circle mx-auto mb-2">
+          <i class="bi bi-globe2"></i>
+        </div>
+        <div class="kpi-value text-info">{{ total_externos_aplicaveis }}</div>
+        <div class="kpi-label">Ext. Aplicáveis</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<!-- /KPI cards -->
+
+<div class="row g-4">
+
+  <!-- ── Recently updated documents ───────────────────────────────────────── -->
+  <div class="col-12 col-xl-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+          <i class="bi bi-clock-history me-2 text-primary"></i>Documentos Recentes
+        </span>
+        <a href="{{ url_for('documentos.lista') }}"
+           class="btn btn-sm btn-outline-primary">
+          Ver todos
+        </a>
+      </div>
+      <div class="card-body p-0">
+        {% if documentos_recentes %}
+          <div class="table-responsive">
+            <table class="table table-hover table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th class="px-3">Código</th>
+                  <th>Título</th>
+                  <th class="text-center">Rev.</th>
+                  <th class="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for doc in documentos_recentes %}
+                <tr>
+                  <td class="px-3">
+                    <code class="text-primary fw-semibold">{{ doc.codigo }}</code>
+                  </td>
+                  <td>
+                    <span class="text-truncate d-block" style="max-width:220px"
+                          title="{{ doc.titulo }}">
+                      {{ doc.titulo }}
+                    </span>
+                    <small class="text-muted">{{ doc.tipo_documento }}</small>
+                  </td>
+                  <td class="text-center">
+                    <span class="badge bg-light text-dark border">
+                      {{ doc.revisao_formatada }}
+                    </span>
+                  </td>
+                  <td class="text-center">
+                    <span class="badge bg-{{ doc.badge_status }}">
+                      {{ doc.status }}
+                    </span>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-center text-muted py-5">
+            <i class="bi bi-folder-x display-4 d-block mb-2"></i>
+            Nenhum documento cadastrado ainda.
+            {% if current_user.pode_editar_documentos() %}
+            <div class="mt-2">
+              <a href="{{ url_for('documentos.novo') }}"
+                 class="btn btn-sm btn-primary">
+                <i class="bi bi-plus me-1"></i>Cadastrar primeiro documento
+              </a>
+            </div>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Recent activity timeline ─────────────────────────────────────────── -->
+  <div class="col-12 col-xl-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-bottom">
+        <span class="fw-semibold">
+          <i class="bi bi-activity me-2 text-success"></i>Atividade Recente
+        </span>
+      </div>
+      <div class="card-body overflow-auto" style="max-height: 400px;">
+        {% if eventos_recentes %}
+          <ul class="timeline list-unstyled mb-0">
+            {% for evento in eventos_recentes %}
+            <li class="timeline-item">
+              <div class="timeline-badge bg-{{ evento.cor }}">
+                <i class="bi bi-{{ evento.icone }}"></i>
+              </div>
+              <div class="timeline-content">
+                <div class="small fw-semibold">{{ evento.acao }}</div>
+                <div class="x-small text-muted">
+                  {% if evento.documento %}
+                    <code>{{ evento.documento.codigo }}</code> &mdash;
+                  {% endif %}
+                  {{ evento.usuario.nome }}
+                </div>
+                <div class="x-small text-muted">
+                  {{ evento.data_evento.strftime('%d/%m/%Y %H:%M') }}
+                </div>
+                {% if evento.descricao %}
+                  <div class="x-small text-muted mt-1">{{ evento.descricao }}</div>
+                {% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="text-center text-muted py-4">
+            <i class="bi bi-clock display-4 d-block mb-2"></i>
+            <span class="small">Nenhuma atividade registrada ainda.</span>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+<!-- /row -->
+
+<!-- ── Workflow status summary ───────────────────────────────────────────────── -->
+<div class="row g-3 mt-2">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-bottom">
+        <span class="fw-semibold">
+          <i class="bi bi-diagram-2 me-2 text-warning"></i>Fluxo de Aprovação (resumo)
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-center py-2">
+
+          <div class="workflow-step">
+            <div class="wf-badge bg-secondary">Rascunho</div>
+            <div class="wf-count text-secondary">
+              {% set n = namespace(count=0) %}
+              {% for doc in documentos_recentes if doc.status == 'Rascunho' %}
+                {% set n.count = n.count + 1 %}
+              {% endfor %}
+            </div>
+          </div>
+
+          <i class="bi bi-arrow-right text-muted"></i>
+
+          <div class="workflow-step">
+            <div class="wf-badge bg-warning text-dark">Em revisão</div>
+          </div>
+
+          <i class="bi bi-arrow-right text-muted"></i>
+
+          <div class="workflow-step">
+            <div class="wf-badge bg-info">Ag. Revisão</div>
+          </div>
+
+          <i class="bi bi-arrow-right text-muted"></i>
+
+          <div class="workflow-step">
+            <div class="wf-badge bg-primary">Ag. Aprovação</div>
+          </div>
+
+          <i class="bi bi-arrow-right text-muted"></i>
+
+          <div class="workflow-step">
+            <div class="wf-badge bg-success">Vigente</div>
+          </div>
+
+          <i class="bi bi-arrow-right text-muted"></i>
+
+          <div class="workflow-step">
+            <div class="wf-badge bg-dark">Obsoleto</div>
+          </div>
+
+        </div>
+        <p class="text-muted small text-center mb-0 mt-1">
+          <i class="bi bi-info-circle me-1"></i>
+          Um documento com status <strong>Em revisão</strong> não substitui o
+          vigente até ser aprovado e publicado.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Display current date in pt-BR format
+  const el = document.getElementById('data-atual');
+  if (el) {
+    el.textContent = new Date().toLocaleDateString('pt-BR', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+  }
+</script>
+{% endblock %}

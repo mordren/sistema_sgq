@@ -1,0 +1,11 @@
+# Coloque aqui o arquivo logo.png da empresa.
+#
+# O arquivo deve se chamar:  logo.png
+# Tamanho recomendado:       200 x 60 px (ou proporção similar)
+# Formato:                   PNG (transparência suportada)
+#
+# Ele será exibido automaticamente:
+#   - Na pré-visualização online do documento
+#   - No PDF gerado ao publicar como Vigente
+#
+# Se não houver logo.png, o sistema exibe o texto "CSV Cascavel" no lugar.

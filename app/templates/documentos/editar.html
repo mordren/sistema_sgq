@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Editar {{ doc.codigo }} – SGQ{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="{{ url_for('documentos.detalhe', id=doc.id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-pencil me-2 text-primary"></i>Editar Documento
+    </h2>
+    <p class="text-muted small mb-0">
+      <code>{{ doc.codigo }}</code> &mdash; {{ doc.titulo }}
+      <span class="badge bg-{{ doc.badge_status }} ms-2">{{ doc.status }}</span>
+    </p>
+  </div>
+</div>
+
+<form method="POST" action="{{ url_for('documentos.editar', id=doc.id) }}" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="row g-4">
+
+    <!-- ── Left column ─────────────────────────────────────────────────────── -->
+    <div class="col-12 col-lg-8">
+
+      <!-- Identificação (código is read-only) -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-tag me-2 text-primary"></i>Identificação
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12 col-sm-4">
+              <label class="form-label fw-semibold small">Código</label>
+              <input type="text" class="form-control form-control bg-light"
+                     value="{{ doc.codigo }}" readonly disabled>
+              <div class="form-text">O código não pode ser alterado.</div>
+            </div>
+            <div class="col-12 col-sm-8">
+              {{ form.titulo.label(class="form-label fw-semibold small") }}
+              {{ form.titulo(
+                  class="form-control" ~ (" is-invalid" if form.titulo.errors else "")
+              ) }}
+              {% for e in form.titulo.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+            <div class="col-12 col-sm-5">
+              {{ form.tipo_documento.label(class="form-label fw-semibold small") }}
+              {{ form.tipo_documento(
+                  class="form-select" ~ (" is-invalid" if form.tipo_documento.errors else "")
+              ) }}
+              {% for e in form.tipo_documento.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Responsáveis -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-people me-2 text-primary"></i>Responsáveis
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12 col-sm-4">
+              {{ form.elaborado_por_id.label(class="form-label fw-semibold small") }}
+              {{ form.elaborado_por_id(class="form-select") }}
+            </div>
+            <div class="col-12 col-sm-4">
+              {{ form.revisado_por_id.label(class="form-label fw-semibold small") }}
+              {{ form.revisado_por_id(class="form-select") }}
+            </div>
+            <div class="col-12 col-sm-4">
+              {{ form.aprovado_por_id.label(class="form-label fw-semibold small") }}
+              {{ form.aprovado_por_id(class="form-select") }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metadados -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-info-circle me-2 text-primary"></i>Metadados
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12 col-sm-8">
+              {{ form.requisito_relacionado.label(class="form-label fw-semibold small") }}
+              {{ form.requisito_relacionado(class="form-control",
+                                           placeholder="Ex: ISO/IEC 17020 item 8.3") }}
+            </div>
+            <div class="col-12 d-flex gap-4 pt-2">
+              <div class="form-check">
+                {{ form.distribuicao_tecnica(class="form-check-input") }}
+                {{ form.distribuicao_tecnica.label(class="form-check-label small") }}
+              </div>
+              <div class="form-check">
+                {{ form.distribuicao_administrativa(class="form-check-input") }}
+                {{ form.distribuicao_administrativa.label(class="form-check-label small") }}
+              </div>
+              <div class="form-check">
+                {{ form.requer_treinamento(class="form-check-input") }}
+                {{ form.requer_treinamento.label(class="form-check-label small") }}
+              </div>
+            </div>
+            <div class="col-12">
+              {{ form.observacao.label(class="form-label fw-semibold small") }}
+              {{ form.observacao(class="form-control", rows="3") }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Right column ────────────────────────────────────────────────────── -->
+    <div class="col-12 col-lg-4">
+      <div class="alert alert-warning small">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        <strong>Atenção:</strong> para alterar arquivos (DOCX/PDF) use os botões de
+        upload na tela de detalhes.
+      </div>
+      <div class="card border-0 shadow-sm">
+        <div class="card-body small text-muted">
+          <div class="fw-semibold text-dark mb-2">
+            <i class="bi bi-shield me-1"></i>Regras
+          </div>
+          <ul class="ps-3 mb-0">
+            <li>O código não pode ser alterado.</li>
+            <li>Documentos <strong>Vigentes</strong> não podem ter metadados alterados — abra uma revisão.</li>
+            <li>Toda alteração gera um evento no histórico.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Submit bar -->
+  <div class="d-flex gap-2 justify-content-end mt-2">
+    <a href="{{ url_for('documentos.detalhe', id=doc.id) }}" class="btn btn-outline-secondary">
+      <i class="bi bi-x me-1"></i>Cancelar
+    </a>
+    {{ form.submit(class="btn btn-primary px-4") }}
+  </div>
+
+</form>
+{% endblock %}

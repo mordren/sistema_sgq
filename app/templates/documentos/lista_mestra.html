@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+
+{% block title %}Lista Mestra – SGQ{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* ── Screen styles ── */
+  .lm-doc-header {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 8px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10.5pt;
+  }
+  .lm-doc-header td {
+    border: 1px solid #000;
+    padding: 5px 8px;
+    vertical-align: middle;
+  }
+  .lm-signatories {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9.5pt;
+  }
+  .lm-signatories td {
+    border: 1px solid #000;
+    padding: 5px 8px;
+    width: 33.33%;
+  }
+  @media print {
+    #sidebar, .top-navbar, .no-print { display: none !important; }
+    .card { border: none !important; box-shadow: none !important; }
+    body { font-size: 11px; }
+    .lm-doc-header, .lm-signatories { margin-bottom: 4px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Toolbar (hidden on print) ── #}
+<div class="no-print d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-list-check me-2 text-success"></i>Lista Mestra
+    </h2>
+    <p class="text-muted small mb-0">
+      Gerada automaticamente &mdash; {{ gerado_em.strftime('%d/%m/%Y %H:%M') }} UTC
+    </p>
+  </div>
+  <div id="export-bar" class="d-flex gap-2 flex-wrap align-items-center">
+    {% if pode_configurar %}
+    <a href="{{ url_for('documentos.configurar_lista_mestra') }}"
+       class="btn btn-sm btn-outline-primary" title="Configurar cabeçalho">
+      <i class="bi bi-gear me-1"></i>Configurar
+    </a>
+    {% endif %}
+    {% if current_user.pode_exportar() %}
+    <a href="{{ url_for('documentos.exportar_lista_mestra', formato='excel') }}"
+       class="btn btn-sm btn-outline-success" title="Exportar Excel">
+      <i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel
+    </a>
+    <a href="{{ url_for('documentos.exportar_lista_mestra', formato='pdf') }}"
+       class="btn btn-sm btn-outline-danger" title="Exportar PDF">
+      <i class="bi bi-file-earmark-pdf me-1"></i>PDF
+    </a>
+    <a href="{{ url_for('documentos.exportar_lista_mestra', formato='csv') }}"
+       class="btn btn-sm btn-outline-secondary" title="Exportar CSV">
+      <i class="bi bi-filetype-csv me-1"></i>CSV
+    </a>
+    {% endif %}
+    <button onclick="window.print()" class="btn btn-sm btn-outline-dark" title="Imprimir">
+      <i class="bi bi-printer me-1"></i>Imprimir
+    </button>
+  </div>
+</div>
+
+{# ── Stats row (screen only) ── #}
+<div class="no-print row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 text-success">{{ total }}</div>
+      <div class="small text-muted">Documentos vigentes</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 text-warning">
+        {{ documentos | selectattr('requer_treinamento') | list | length }}
+      </div>
+      <div class="small text-muted">Requerem treinamento</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 text-primary">
+        {{ documentos | selectattr('distribuicao_tecnica') | list | length }}
+      </div>
+      <div class="small text-muted">Dist. técnica</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 text-info">
+        {{ documentos | selectattr('distribuicao_administrativa') | list | length }}
+      </div>
+      <div class="small text-muted">Dist. administrativa</div>
+    </div>
+  </div>
+</div>
+
+{# ── Document header (printed + screen) ── #}
+<table class="lm-doc-header">
+  <tr>
+    <td rowspan="3" style="width:22%;text-align:center;">
+      <img src="{{ url_for('static', filename='images/logo.png') }}"
+           style="max-width:100%;max-height:70px;object-fit:contain;"
+           onerror="this.style.display='none';document.getElementById('lm-org-text').style.display='block';"
+           alt="Logo">
+      <span id="lm-org-text" style="display:none;font-size:11pt;font-weight:bold;">CSV Cascavel</span>
+    </td>
+    <td colspan="2" style="text-align:center;font-weight:bold;font-size:13pt;">
+      {{ cfg.titulo }}
+    </td>
+  </tr>
+  <tr>
+    <td style="width:39%;"><strong>Código:</strong> {{ cfg.codigo }}</td>
+    <td><strong>Revisão:</strong> {{ cfg.revisao_formatada }}</td>
+  </tr>
+  <tr>
+    <td><strong>Data de aprovação:</strong>
+      {% if cfg.data_aprovacao %}
+        {{ cfg.data_aprovacao.strftime('%d/%m/%Y') }}
+      {% else %}—{% endif %}
+    </td>
+    <td><strong>Gerado em:</strong> {{ gerado_em.strftime('%d/%m/%Y') }}</td>
+  </tr>
+</table>
+
+<table class="lm-signatories">
+  <tr>
+    <td>
+      <strong>Elaborado por:</strong><br>
+      {{ cfg.elaborado_por.nome if cfg.elaborado_por else '—' }}
+    </td>
+    <td>
+      <strong>Revisado por:</strong><br>
+      {{ cfg.revisado_por.nome if cfg.revisado_por else '—' }}
+    </td>
+    <td>
+      <strong>Aprovado por:</strong><br>
+      {{ cfg.aprovado_por.nome if cfg.aprovado_por else '—' }}
+    </td>
+  </tr>
+</table>
+
+{# ── Lista Mestra table ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-sgq-dark text-white d-flex justify-content-between align-items-center">
+    <span class="fw-bold small">
+      <i class="bi bi-journals me-2"></i>
+      LISTA MESTRA DE DOCUMENTOS – CSV Cascavel / ABNT NBR ISO/IEC 17020:2012
+    </span>
+    <span class="badge bg-success ms-2">{{ total }} vigentes</span>
+  </div>
+
+  {% if documentos %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm align-middle mb-0 lm-table">
+      <thead>
+        <tr class="table-dark">
+          <th class="text-nowrap px-2">Código</th>
+          <th>Título</th>
+          <th class="text-nowrap">Tipo</th>
+          <th class="text-center text-nowrap">Rev.</th>
+          <th class="text-center text-nowrap">Data Aprov.</th>
+          <th class="text-center text-nowrap">Elaborado por</th>
+          <th class="text-center text-nowrap">Dist. Téc.</th>
+          <th class="text-center text-nowrap">Dist. Adm.</th>
+          <th class="text-center text-nowrap no-print">PDF</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(prev_tipo='') %}
+        {% for doc in documentos %}
+          {% if doc.tipo_documento != ns.prev_tipo %}
+            {% set ns.prev_tipo = doc.tipo_documento %}
+            <tr class="lm-group-header">
+              <td colspan="9" class="fw-bold small py-1 px-2 text-primary-emphasis bg-primary-subtle">
+                <i class="bi bi-folder2 me-1"></i>
+                {{ TipoDocumento.LABELS.get(doc.tipo_documento, doc.tipo_documento) }}
+              </td>
+            </tr>
+          {% endif %}
+        <tr>
+          <td class="px-2">
+            <code class="fw-bold text-primary">{{ doc.codigo }}</code>
+          </td>
+          <td>
+            <span class="small" title="{{ doc.titulo }}">{{ doc.titulo }}</span>
+          </td>
+          <td class="text-nowrap small">{{ doc.tipo_documento }}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-dark border font-monospace small">
+              {{ doc.revisao_formatada }}
+            </span>
+          </td>
+          <td class="text-center small text-nowrap">
+            {{ doc.data_aprovacao.strftime('%d/%m/%Y') if doc.data_aprovacao else '—' }}
+          </td>
+          <td class="text-center small">
+            {{ doc.elaborado_por.nome if doc.elaborado_por else '—' }}
+          </td>
+          <td class="text-center">
+            {% if doc.distribuicao_tecnica %}
+              <i class="bi bi-check-circle-fill text-success"></i>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if doc.distribuicao_administrativa %}
+              <i class="bi bi-check-circle-fill text-success"></i>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="text-center no-print">
+            {% if doc.caminho_pdf_vigente %}
+              <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
+                 class="btn btn-sm btn-outline-danger py-0 px-1"
+                 title="Abrir PDF vigente" target="_blank">
+                <i class="bi bi-file-pdf small"></i>
+              </a>
+            {% else %}
+              <span class="badge bg-warning text-dark small" title="PDF não disponível">
+                <i class="bi bi-exclamation-triangle"></i>
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card-footer bg-white text-muted small py-2 text-end no-print">
+    <i class="bi bi-info-circle me-1"></i>
+    Lista gerada automaticamente pelo SGQ CSV Cascavel em
+    {{ gerado_em.strftime('%d/%m/%Y às %H:%M') }} UTC.
+  </div>
+
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-journals display-4 d-block mb-3"></i>
+    <p class="mb-1">Nenhum documento <strong>Vigente</strong> encontrado.</p>
+    <p class="small">
+      Cadastre um documento e publique-o como Vigente para que apareça aqui automaticamente.
+    </p>
+    {% if current_user.pode_editar_documentos() %}
+    <a href="{{ url_for('documentos.novo') }}" class="btn btn-sm btn-primary mt-2">
+      <i class="bi bi-plus me-1"></i>Novo Documento
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{# ── Documentos Externos section ─────────────────────────────────────────── #}
+{% if docs_externos %}
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-sgq-dark text-white d-flex justify-content-between align-items-center">
+    <span class="fw-bold small">
+      <i class="bi bi-globe2 me-2"></i>DOCUMENTOS EXTERNOS – VIGENTES
+    </span>
+    <span class="badge bg-info ms-2">{{ docs_externos | length }} documento(s)</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm align-middle mb-0 lm-table">
+      <thead>
+        <tr class="table-dark">
+          <th class="text-nowrap px-2">Identificação do Documento</th>
+          <th>Título</th>
+          <th class="text-nowrap">Órgão Emissor / Categoria</th>
+          <th class="text-center text-nowrap">Revisão</th>
+          <th class="text-nowrap">Distribuição</th>
+          <th class="text-center text-nowrap">Situação</th>
+          <th class="text-center text-nowrap no-print">Arquivo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ext in docs_externos %}
+        <tr>
+          <td class="px-2">
+            <code class="fw-bold text-info">{{ ext.codigo or '—' }}</code>
+          </td>
+          <td>
+            <span class="small" title="{{ ext.titulo }}">{{ ext.titulo }}</span>
+          </td>
+          <td class="text-nowrap small">{{ ext.orgao_emissor or '—' }}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-dark border font-monospace small">
+              {{ ext.revisao_ou_na }}
+            </span>
+          </td>
+          <td class="small text-nowrap">{{ ext.distribuicao_formatada }}</td>
+          <td class="text-center">
+            <span class="badge bg-success">Vigente</span>
+          </td>
+          <td class="text-center no-print">
+            {% if ext.arquivo_pdf %}
+            <a href="{{ url_for('documentos.visualizar_externo', id=ext.id) }}"
+               class="btn btn-sm btn-outline-info py-0 px-1"
+               title="Visualizar" target="_blank">
+              <i class="bi bi-eye small"></i>
+            </a>
+            {% else %}
+            <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bg-white text-muted small py-2 text-end no-print">
+    <a href="{{ url_for('documentos.documentos_externos') }}" class="text-decoration-none">
+      <i class="bi bi-arrow-right me-1"></i>Gerenciar Documentos Externos
+    </a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+

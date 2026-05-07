@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Novo Documento – SGQ{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-3 mb-4">
+  <a href="{{ url_for('documentos.lista') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-file-earmark-plus me-2 text-primary"></i>Novo Documento
+    </h2>
+    <p class="text-muted small mb-0">Cadastro de novo documento no SGQ CSV Cascavel</p>
+  </div>
+</div>
+
+<form method="POST" action="{{ url_for('documentos.novo') }}"
+      enctype="multipart/form-data" novalidate>
+  {{ form.hidden_tag() }}
+
+  <div class="row g-4">
+
+    <!-- ── Left column ─────────────────────────────────────────────────────── -->
+    <div class="col-12 col-lg-8">
+
+      <!-- Section: Identificação -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-tag me-2 text-primary"></i>Identificação
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12 col-sm-4">
+              {{ form.codigo.label(class="form-label fw-semibold small") }}
+              {{ form.codigo(
+                  class="form-control" ~ (" is-invalid" if form.codigo.errors else ""),
+                  placeholder="Ex: PA-02",
+                  autocomplete="off"
+              ) }}
+              {% for e in form.codigo.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+              <div class="form-text">Único e imutável após cadastro.</div>
+            </div>
+            <div class="col-12 col-sm-8">
+              {{ form.titulo.label(class="form-label fw-semibold small") }}
+              {{ form.titulo(
+                  class="form-control" ~ (" is-invalid" if form.titulo.errors else ""),
+                  placeholder="Ex: Controle de Documentos"
+              ) }}
+              {% for e in form.titulo.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+            <div class="col-12 col-sm-6">
+              {{ form.tipo_documento.label(class="form-label fw-semibold small") }}
+              {{ form.tipo_documento(
+                  class="form-select" ~ (" is-invalid" if form.tipo_documento.errors else "")
+              ) }}
+              {% for e in form.tipo_documento.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+            <div class="col-12 col-sm-3">
+              {{ form.revisao_inicial.label(class="form-label fw-semibold small") }}
+              {{ form.revisao_inicial(
+                  class="form-control" ~ (" is-invalid" if form.revisao_inicial.errors else ""),
+                  min="0", max="99"
+              ) }}
+              {% for e in form.revisao_inicial.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+              <div class="form-text">Use 0 para Rev00.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Responsáveis -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-people me-2 text-primary"></i>Responsáveis
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12 col-sm-4">
+              {{ form.elaborado_por_id.label(class="form-label fw-semibold small") }}
+              {{ form.elaborado_por_id(class="form-select") }}
+            </div>
+            <div class="col-12 col-sm-4">
+              {{ form.revisado_por_id.label(class="form-label fw-semibold small") }}
+              {{ form.revisado_por_id(class="form-select") }}
+            </div>
+            <div class="col-12 col-sm-4">
+              {{ form.aprovado_por_id.label(class="form-label fw-semibold small") }}
+              {{ form.aprovado_por_id(class="form-select") }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section: Metadados -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-info-circle me-2 text-primary"></i>Metadados
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12 col-sm-8">
+              {{ form.requisito_relacionado.label(class="form-label fw-semibold small") }}
+              {{ form.requisito_relacionado(
+                  class="form-control",
+                  placeholder="Ex: ISO/IEC 17020 item 8.3"
+              ) }}
+            </div>
+            <div class="col-12 d-flex gap-4 pt-2">
+              <div class="form-check">
+                {{ form.distribuicao_tecnica(class="form-check-input") }}
+                {{ form.distribuicao_tecnica.label(class="form-check-label small") }}
+              </div>
+              <div class="form-check">
+                {{ form.distribuicao_administrativa(class="form-check-input") }}
+                {{ form.distribuicao_administrativa.label(class="form-check-label small") }}
+              </div>
+              <div class="form-check">
+                {{ form.requer_treinamento(class="form-check-input") }}
+                {{ form.requer_treinamento.label(class="form-check-label small") }}
+              </div>
+            </div>
+            <div class="col-12">
+              {{ form.observacao.label(class="form-label fw-semibold small") }}
+              {{ form.observacao(class="form-control", rows="3") }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <!-- /Left column -->
+
+    <!-- ── Right column ────────────────────────────────────────────────────── -->
+    <div class="col-12 col-lg-4">
+
+      <!-- Section: Arquivos -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom fw-semibold">
+          <i class="bi bi-paperclip me-2 text-primary"></i>Arquivos (opcionais)
+        </div>
+        <div class="card-body">
+
+          <!-- DOCX upload -->
+          <div class="mb-3">
+            {{ form.arquivo_docx.label(class="form-label fw-semibold small") }}
+            {{ form.arquivo_docx(
+                class="form-control form-control-sm" ~ (" is-invalid" if form.arquivo_docx.errors else ""),
+                accept=".docx"
+            ) }}
+            {% for e in form.arquivo_docx.errors %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
+            <div class="form-text">Apenas arquivos <code>.docx</code>.</div>
+          </div>
+
+          <!-- PDF upload -->
+          <div class="mb-2">
+            {{ form.arquivo_pdf.label(class="form-label fw-semibold small") }}
+            {{ form.arquivo_pdf(
+                class="form-control form-control-sm" ~ (" is-invalid" if form.arquivo_pdf.errors else ""),
+                accept=".pdf"
+            ) }}
+            {% for e in form.arquivo_pdf.errors %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
+            <div class="form-text">
+              Envie o PDF existente para importação de documentos já controlados.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Info box -->
+      <div class="alert alert-info small">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        <strong>Após o cadastro</strong>, você poderá:
+        <ul class="mb-0 mt-1 ps-3">
+          <li>Enviar/substituir arquivos separadamente</li>
+          <li>Publicar como <strong>Vigente</strong></li>
+          <li>Ver o histórico completo</li>
+        </ul>
+      </div>
+
+      <!-- Naming convention -->
+      <div class="card border-0 shadow-sm bg-light">
+        <div class="card-body small text-muted">
+          <div class="fw-semibold mb-1">
+            <i class="bi bi-file-earmark-code me-1"></i>Padrão de nomenclatura
+          </div>
+          <code>CODIGO_RevXX_Titulo.pdf</code><br>
+          <code>CODIGO_RevXX_Titulo.docx</code>
+        </div>
+      </div>
+
+    </div>
+    <!-- /Right column -->
+
+  </div>
+  <!-- /row -->
+
+  <!-- ── Submit bar ─────────────────────────────────────────────────────────── -->
+  <div class="d-flex gap-2 justify-content-end mt-2">
+    <a href="{{ url_for('documentos.lista') }}" class="btn btn-outline-secondary">
+      <i class="bi bi-x me-1"></i>Cancelar
+    </a>
+    {{ form.submit(class="btn btn-primary px-4") }}
+  </div>
+
+</form>
+{% endblock %}
