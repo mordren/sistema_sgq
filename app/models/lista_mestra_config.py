@@ -1,5 +1,6 @@
 from datetime import datetime
 from app.extensions import db
+from app.utils.datetime_utils import agora_brasilia
 
 
 class ListaMestraConfig(db.Model):
@@ -32,7 +33,7 @@ class ListaMestraConfig(db.Model):
 
     data_aprovacao = db.Column(db.DateTime, nullable=True)
     atualizado_em = db.Column(
-        db.DateTime, nullable=False, default=datetime.utcnow
+        db.DateTime, nullable=False, default=agora_brasilia
     )
 
     elaborado_por = db.relationship(

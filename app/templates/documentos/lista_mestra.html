@@ -47,7 +47,7 @@
       <i class="bi bi-list-check me-2 text-success"></i>Lista Mestra
     </h2>
     <p class="text-muted small mb-0">
-      Gerada automaticamente &mdash; {{ gerado_em.strftime('%d/%m/%Y %H:%M') }} UTC
+      Gerada automaticamente &mdash; {{ gerado_em.strftime('%d/%m/%Y %H:%M') }} Horário de Brasília
     </p>
   </div>
   <div id="export-bar" class="d-flex gap-2 flex-wrap align-items-center">
@@ -249,7 +249,7 @@
   <div class="card-footer bg-white text-muted small py-2 text-end no-print">
     <i class="bi bi-info-circle me-1"></i>
     Lista gerada automaticamente pelo SGQ CSV Cascavel em
-    {{ gerado_em.strftime('%d/%m/%Y às %H:%M') }} UTC.
+    {{ gerado_em.strftime('%d/%m/%Y às %H:%M') }} Horário de Brasília.
   </div>
 
   {% else %}

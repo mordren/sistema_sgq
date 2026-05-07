@@ -17,6 +17,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 
+from app.utils.datetime_utils import agora_brasilia
+
 _HEADERS = [
     'Código', 'Título', 'Tipo', 'Revisão', 'Data Aprovação',
     'Status', 'Dist. Técnica', 'Dist. Admin.',
@@ -81,7 +83,7 @@ def gerar_excel_lista_mestra(documentos, externos=None) -> io.BytesIO:
     tc = ws['A1']
     tc.value = (
         'LISTA MESTRA DE DOCUMENTOS – CSV Cascavel\n'
-        f'Gerado em: {datetime.utcnow().strftime("%d/%m/%Y %H:%M")} UTC   |   '
+        f'Gerado em: {agora_brasilia().strftime("%d/%m/%Y %H:%M")} Horário de Brasília   |   '
         f'Total vigentes: {len(documentos)}'
     )
     tc.font = Font(bold=True, size=11, color=_HEADER_TEXT)
@@ -251,7 +253,7 @@ def gerar_pdf_lista_mestra(documentos, cfg=None, externos=None) -> io.BytesIO:
                 [''        , Paragraph(f'<b>Código:</b> {cfg.codigo}', cell_style),
                              Paragraph(f'<b>Revisão:</b> {rev_str}', cell_style)],
                 [''        , Paragraph(f'<b>Data de aprovação:</b> {data_aprov}', cell_style),
-                             Paragraph(f'<b>Gerado em:</b> {datetime.utcnow().strftime("%d/%m/%Y")}', cell_style)],
+                             Paragraph(f'<b>Gerado em:</b> {agora_brasilia().strftime("%d/%m/%Y")}', cell_style)],
             ],
             colWidths=[4 * cm, None, None],
             hAlign='LEFT',
@@ -285,7 +287,7 @@ def gerar_pdf_lista_mestra(documentos, cfg=None, externos=None) -> io.BytesIO:
         elements += [
             Paragraph(title_text, title_style),
             Paragraph(
-                f'Gerado em: {datetime.utcnow().strftime("%d/%m/%Y %H:%M")} UTC  |  '
+                f'Gerado em: {agora_brasilia().strftime("%d/%m/%Y %H:%M")} Horário de Brasília  |  '
                 f'Total de documentos vigentes: {len(documentos)}',
                 sub_style,
             ),
@@ -364,7 +366,22 @@ def gerar_pdf_lista_mestra(documentos, cfg=None, externos=None) -> io.BytesIO:
         ]))
         elements.append(ext_table)
 
-    doc.build(elements)
+    # Build PDF with a canvas that draws running headers with page X/Y
+    try:
+        from app.utils.html_pdf import NumberedCanvasFactory
+        meta_for_header = {
+            'codigo': getattr(cfg, 'codigo', None) if cfg is not None else None,
+            'titulo': getattr(cfg, 'titulo', 'Lista Mestra de Documentos') if cfg is not None else 'Lista Mestra de Documentos',
+            'revisao': getattr(cfg, 'revisao_num', None) if cfg is not None else None,
+        }
+        canvas_maker = NumberedCanvasFactory(meta_for_header) or None
+    except Exception:
+        canvas_maker = None
+
+    if canvas_maker:
+        doc.build(elements, canvasmaker=canvas_maker)
+    else:
+        doc.build(elements)
 
     buffer.seek(0)
     return buffer

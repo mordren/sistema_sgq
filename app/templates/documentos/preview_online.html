@@ -98,16 +98,22 @@
     padding: 3px 5px;
     vertical-align: top;
   }
-  /* Print: hide toolbar, full-page preview */
+  /* Print: hide toolbar, sidebar, navbar and page footer; full-page preview */
   @media print {
     .no-print { display: none !important; }
-    body { background: #fff; }
+    footer { display: none !important; }
+    #sidebar, .top-navbar { display: none !important; }
+    #sgq-wrapper { display: block !important; }
+    #content-area { display: block !important; padding: 0 !important; }
+    body { background: #fff !important; }
     .preview-wrapper {
       box-shadow: none;
       padding: 0;
       max-width: none;
       margin: 0;
     }
+    /* Running header is handled by @page @top-center injected via JS */
+    .pdf-header { display: none !important; }
   }
   /* Screen toolbar */
   .preview-toolbar {
@@ -260,6 +266,9 @@
 {# ── Document preview ── #}
 <div class="preview-wrapper">
 
+  <!-- Running header injected via @page CSS in extra_js block -->
+
+
   {# Header table #}
   <table class="doc-header">
     <tr>
@@ -359,4 +368,32 @@
   </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var codigo  = {{ (codigo  or '')|tojson }};
+  var titulo  = {{ (titulo  or '')|tojson }};
+  var revNum  = {% if revisao_num %}{{ '%02d' % revisao_num }}{% else %}null{% endif %};
+  var revText = revNum !== null ? 'Rev' + String(revNum) : 'Rev S/R';
+  /* Build header string and escape for a CSS string literal */
+  var headerStr = (codigo + ' \u2014 ' + titulo + ' \u2014 ' + revText)
+                    .replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  var style = document.createElement('style');
+  style.textContent =
+    '@page {\n' +
+    '  margin: 18mm 15mm 15mm 15mm;\n' +
+    '  @top-center {\n' +
+    '    content: "' + headerStr + ' \u2014 Pg. " counter(page) " / " counter(pages);\n' +
+    '    font-family: Arial, Helvetica, sans-serif;\n' +
+    '    font-size: 8pt;\n' +
+    '    border-bottom: 1px solid #000;\n' +
+    '    text-align: center;\n' +
+    '    width: 100%;\n' +
+    '  }\n' +
+    '}';
+  document.head.appendChild(style);
+}());
+</script>
 {% endblock %}

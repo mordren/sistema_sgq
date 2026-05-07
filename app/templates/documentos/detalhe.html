@@ -31,7 +31,12 @@
         {% if doc.requisito_relacionado %}
           <div class="small text-muted mt-1">
             <i class="bi bi-link-45deg me-1"></i>
-            Requisito: {{ doc.requisito_relacionado }}
+            Requisitos:
+            {% for requisito in doc.requisito_relacionado.splitlines() %}
+              {% if requisito.strip() %}
+                <span class="d-block">{{ requisito.strip() }}</span>
+              {% endif %}
+            {% endfor %}
           </div>
         {% endif %}
       </div>
@@ -152,7 +157,17 @@
                 {% endif %}
               </td>
               <th class="px-3 py-2 text-muted small">Requisito</th>
-              <td class="py-2 small">{{ doc.requisito_relacionado or '—' }}</td>
+              <td class="py-2 small">
+                {% if doc.requisito_relacionado %}
+                  {% for requisito in doc.requisito_relacionado.splitlines() %}
+                    {% if requisito.strip() %}
+                      <span class="d-block">{{ requisito.strip() }}</span>
+                    {% endif %}
+                  {% endfor %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
             </tr>
             {% if doc.observacao %}
             <tr>

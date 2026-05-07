@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
   <title>{% block title %}SGQ – CSV Cascavel{% endblock %}</title>
 
   <!-- Bootstrap 5 -->
@@ -89,8 +90,8 @@
       </li>
 
       <li class="nav-item">
-        <a href="{{ url_for('documentos.lista', status='Obsoleto') }}"
-           class="nav-link sidebar-link {% if request.endpoint == 'documentos.lista' and request.args.get('status') == 'Obsoleto' %}active{% endif %}">
+        <a href="{{ url_for('documentos.obsoletos') }}"
+           class="nav-link sidebar-link {% if request.endpoint in ['documentos.obsoletos', 'documentos.download_obsoleto'] %}active{% endif %}">
           <i class="bi bi-archive"></i>
           Obsoletos
         </a>
@@ -131,8 +132,8 @@
       </li>
 
       <li class="nav-item">
-        <a href="{{ url_for('main.em_desenvolvimento') }}"
-           class="nav-link sidebar-link">
+        <a href="{{ url_for('documentos.matriz_correlacao') }}"
+           class="nav-link sidebar-link {% if request.endpoint in ['documentos.matriz_correlacao', 'documentos.excluir_matriz_correlacao'] %}active{% endif %}">
           <i class="bi bi-diagram-3"></i>
           Matriz de Correlação
         </a>

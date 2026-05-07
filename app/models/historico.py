@@ -1,5 +1,6 @@
 from datetime import datetime
 from app.extensions import db
+from app.utils.datetime_utils import agora_brasilia
 
 
 class AcaoEvento:
@@ -76,7 +77,7 @@ class HistoricoEvento(db.Model):
     acao = db.Column(db.String(100), nullable=False)
     descricao = db.Column(db.Text, nullable=True)
     data_evento = db.Column(
-        db.DateTime, default=datetime.utcnow, nullable=False, index=True
+        db.DateTime, default=agora_brasilia, nullable=False, index=True
     )
     # IPv4 or IPv6 address
     ip_usuario = db.Column(db.String(45), nullable=True)

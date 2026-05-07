@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Documentos Obsoletos - SGQ{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-archive me-2 text-secondary"></i>Documentos Obsoletos
+    </h2>
+    <p class="text-muted small mb-0">Arquivos PDF retirados de vigência e mantidos para consulta</p>
+  </div>
+  <a href="{{ url_for('documentos.lista') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left me-2"></i>Lista de Documentos
+  </a>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body py-3">
+    <form method="GET" action="{{ url_for('documentos.obsoletos') }}" class="row g-2 align-items-end">
+      <div class="col-12 col-md-6">
+        <label class="form-label small fw-semibold mb-1">
+          <i class="bi bi-search me-1"></i>Pesquisar
+        </label>
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="Código, título ou nome do arquivo..." value="{{ q_f }}">
+      </div>
+      <div class="col-12 col-sm-6 col-md-3">
+        <label class="form-label small fw-semibold mb-1">Tipo</label>
+        <select name="tipo" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for tipo in tipos %}
+            <option value="{{ tipo }}" {% if tipo == tipo_f %}selected{% endif %}>{{ tipo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-sm-6 col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+          <i class="bi bi-funnel me-1"></i>Filtrar
+        </button>
+        <a href="{{ url_for('documentos.obsoletos') }}" class="btn btn-outline-secondary btn-sm"
+           title="Limpar filtros">
+          <i class="bi bi-x-circle"></i>
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-2">
+    <span class="small text-muted">
+      <i class="bi bi-folder2-open me-1"></i>
+      <strong>{{ total }}</strong> arquivo(s) obsoleto(s)
+      {% if tipo_f or q_f %}
+        <span class="text-muted"> - filtro ativo</span>
+      {% endif %}
+    </span>
+    <span class="small text-muted">Página {{ page }} de {{ pages }}</span>
+  </div>
+
+  {% if arquivos %}
+  <div class="table-responsive">
+    <table class="table table-hover table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="px-3 text-nowrap">Código</th>
+          <th class="text-nowrap">Tipo</th>
+          <th>Título</th>
+          <th class="text-center text-nowrap">Rev.</th>
+          <th class="text-end text-nowrap d-none d-md-table-cell">Arquivo</th>
+          <th class="text-end text-nowrap d-none d-lg-table-cell">Obsoleto em</th>
+          <th class="text-center text-nowrap">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in arquivos %}
+        <tr>
+          <td class="px-3">
+            {% if item.doc %}
+              <a href="{{ url_for('documentos.detalhe', id=item.doc.id) }}"
+                 class="text-decoration-none fw-semibold text-primary font-monospace small">
+                {{ item.codigo or '-' }}
+              </a>
+            {% else %}
+              <span class="fw-semibold font-monospace small">{{ item.codigo or '-' }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge bg-light text-dark border small">{{ item.tipo_documento or '-' }}</span>
+          </td>
+          <td>
+            <span class="text-truncate d-block" style="max-width:320px"
+                  title="{{ item.titulo }}">{{ item.titulo }}</span>
+            <span class="text-muted small d-lg-none">{{ item.filename }}</span>
+          </td>
+          <td class="text-center">
+            {% if item.revisao != '' %}
+              <span class="badge bg-dark font-monospace small">Rev{{ '%02d' % item.revisao }}</span>
+            {% else %}
+              <span class="text-muted small">-</span>
+            {% endif %}
+          </td>
+          <td class="text-end small text-muted d-none d-md-table-cell">
+            <span title="{{ item.filename }}">{{ (item.tamanho / 1024)|round(1) }} KB</span>
+          </td>
+          <td class="text-end small text-muted d-none d-lg-table-cell">
+            {{ item.modificado_em.strftime('%d/%m/%Y %H:%M') }}
+          </td>
+          <td class="text-center">
+            <div class="btn-group btn-group-sm">
+              <a href="{{ url_for('documentos.download_obsoleto', filename=item.filename) }}"
+                 class="btn btn-outline-danger" title="Abrir PDF obsoleto" target="_blank">
+                <i class="bi bi-file-pdf"></i>
+              </a>
+              {% if item.doc %}
+              <a href="{{ url_for('documentos.detalhe', id=item.doc.id) }}"
+                 class="btn btn-outline-secondary" title="Ver cadastro">
+                <i class="bi bi-eye"></i>
+              </a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+  <div class="card-footer bg-white border-top">
+    <nav aria-label="Paginação de obsoletos">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        <li class="page-item {% if not has_prev %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('documentos.obsoletos', page=prev_num, q=q_f, tipo=tipo_f) }}">
+            &laquo;
+          </a>
+        </li>
+        {% for p in range(1, pages + 1) %}
+          {% if p == 1 or p == pages or (p >= page - 2 and p <= page + 2) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+              <a class="page-link"
+                 href="{{ url_for('documentos.obsoletos', page=p, q=q_f, tipo=tipo_f) }}">
+                {{ p }}
+              </a>
+            </li>
+          {% elif p == 2 or p == pages - 1 %}
+            <li class="page-item disabled"><span class="page-link">...</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not has_next %}disabled{% endif %}">
+          <a class="page-link"
+             href="{{ url_for('documentos.obsoletos', page=next_num, q=q_f, tipo=tipo_f) }}">
+            &raquo;
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-archive display-4 d-block mb-3"></i>
+    <p class="mb-1">Nenhum arquivo obsoleto encontrado.</p>
+    {% if tipo_f or q_f %}
+      <a href="{{ url_for('documentos.obsoletos') }}" class="btn btn-sm btn-outline-secondary mt-2">
+        <i class="bi bi-x me-1"></i>Limpar filtros
+      </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

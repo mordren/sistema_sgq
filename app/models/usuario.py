@@ -1,5 +1,6 @@
 from datetime import datetime
 from app.extensions import db, login_manager
+from app.utils.datetime_utils import agora_brasilia
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -33,7 +34,7 @@ class Usuario(UserMixin, db.Model):
         db.String(50), nullable=False, default=Perfil.COLABORADOR_CONSULTA
     )
     ativo = db.Column(db.Boolean, default=True, nullable=False)
-    data_criacao = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    data_criacao = db.Column(db.DateTime, default=agora_brasilia, nullable=False)
 
     # ── Relationships ──────────────────────────────────────────────────────────
     documentos_elaborados = db.relationship(

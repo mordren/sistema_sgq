@@ -1,0 +1,189 @@
+{# ⚠ matriz_correlacao_json is rendered by form.hidden_tag() in the parent template.
+   The JS below finds it by name and sets its id. #}
+{{ form.requisito_relacionado(id='requisito-relacionado-resumo', class='d-none', rows='1') }}
+
+<div class="col-12">
+  <div class="border rounded p-3 bg-light-subtle" id="matriz-correlacao-builder">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+      <div>
+        <div class="small fw-semibold">Itens atendidos por este documento</div>
+        <div class="form-text mb-0">Cada linha vira uma correlação na matriz. Os formulários ficam vinculados ao item da própria linha.</div>
+      </div>
+      <button type="button" class="btn btn-sm btn-primary" id="matriz-add-row">
+        <i class="bi bi-plus-lg me-1"></i>Item
+      </button>
+    </div>
+
+    <div id="matriz-rows" class="d-grid gap-3"></div>
+  </div>
+</div>
+
+<template id="matriz-row-template">
+  <div class="matriz-row border rounded bg-white p-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="small fw-semibold">Item da matriz</span>
+      <button type="button" class="btn btn-sm btn-outline-danger matriz-remove-row" title="Remover item">
+        <i class="bi bi-trash"></i>
+      </button>
+    </div>
+
+    <div class="row g-2">
+      <div class="col-12 col-md-2">
+        <label class="form-label small fw-semibold mb-1">Norma 17020</label>
+        <input type="text" class="form-control form-control-sm matriz-field" data-field="norma_17020" placeholder="4.1">
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label small fw-semibold mb-1">NIT DIOIS 019</label>
+        <input type="text" class="form-control form-control-sm matriz-field" data-field="nit_diois_019" placeholder="A.4.1">
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label small fw-semibold mb-1">NIT DIOIS 008</label>
+        <input type="text" class="form-control form-control-sm matriz-field" data-field="nit_diois_008" placeholder="4.1.3 n1, n2, n3">
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label small fw-semibold mb-1">MQ</label>
+        <input type="text" class="form-control form-control-sm matriz-field" data-field="mq" placeholder="4.1">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small fw-semibold mb-1">Requisito</label>
+        <input type="text" class="form-control form-control-sm matriz-field" data-field="requisito" placeholder="Imparcialidade">
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <label class="form-label small fw-semibold mb-1">Formulários aplicáveis</label>
+      <div class="d-flex gap-2">
+        <select class="form-select form-select-sm matriz-form-select">
+          <option value="">Selecione um formulário</option>
+          {% for formulario in formularios_choices %}
+          <option value="{{ formulario.codigo }}">{{ formulario.codigo }} - {{ formulario.titulo }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-primary matriz-add-form">
+          <i class="bi bi-plus-lg"></i>
+        </button>
+      </div>
+      <div class="matriz-form-list d-flex flex-wrap gap-2 mt-2"></div>
+    </div>
+  </div>
+</template>
+
+<script>
+(function () {
+  // The hidden input is rendered by form.hidden_tag() — find it by name
+  var hiddenJson = document.querySelector('input[name="matriz_correlacao_json"]');
+  if (hiddenJson) hiddenJson.id = 'matriz-correlacao-json';
+  var resumo = document.getElementById('requisito-relacionado-resumo');
+  var rowsEl = document.getElementById('matriz-rows');
+  var template = document.getElementById('matriz-row-template');
+  var addRowBtn = document.getElementById('matriz-add-row');
+  if (!hiddenJson || !resumo || !rowsEl || !template || !addRowBtn) return;
+
+  function parseRows() {
+    try {
+      var parsed = JSON.parse(hiddenJson.value || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function legacyRows() {
+    return (resumo.value || '')
+      .split(/\r?\n/)
+      .map(function (line) { return line.trim(); })
+      .filter(Boolean)
+      .map(function (requisito) {
+        return {
+          norma_17020: '',
+          nit_diois_019: '',
+          nit_diois_008: '',
+          mq: '',
+          requisito: requisito,
+          formularios: []
+        };
+      });
+  }
+
+  function addFormBadge(rowEl, value) {
+    value = (value || '').trim();
+    if (!value) return;
+    var existing = Array.from(rowEl.querySelectorAll('.matriz-form-badge')).some(function (badge) {
+      return badge.dataset.value === value;
+    });
+    if (existing) return;
+
+    var badge = document.createElement('span');
+    badge.className = 'badge text-bg-light border matriz-form-badge d-inline-flex align-items-center gap-1';
+    badge.dataset.value = value;
+    badge.innerHTML = '<span></span><button type="button" class="btn-close btn-close-sm" aria-label="Remover"></button>';
+    badge.querySelector('span').textContent = value;
+    badge.querySelector('button').addEventListener('click', function () {
+      badge.remove();
+    });
+    rowEl.querySelector('.matriz-form-list').appendChild(badge);
+  }
+
+  function addRow(data) {
+    var node = template.content.firstElementChild.cloneNode(true);
+    data = data || {};
+    node.querySelectorAll('.matriz-field').forEach(function (input) {
+      input.value = data[input.dataset.field] || '';
+    });
+    (data.formularios || []).forEach(function (formulario) {
+      addFormBadge(node, formulario);
+    });
+    node.querySelector('.matriz-remove-row').addEventListener('click', function () {
+      node.remove();
+      if (!rowsEl.children.length) addRow();
+    });
+    node.querySelector('.matriz-add-form').addEventListener('click', function () {
+      var select = node.querySelector('.matriz-form-select');
+      addFormBadge(node, select.value);
+      select.value = '';
+    });
+    rowsEl.appendChild(node);
+  }
+
+  function collectRows() {
+    return Array.from(rowsEl.querySelectorAll('.matriz-row')).map(function (rowEl) {
+      var row = {
+        norma_17020: '',
+        nit_diois_019: '',
+        nit_diois_008: '',
+        mq: '',
+        requisito: '',
+        formularios: []
+      };
+      rowEl.querySelectorAll('.matriz-field').forEach(function (input) {
+        row[input.dataset.field] = input.value.trim();
+      });
+      row.formularios = Array.from(rowEl.querySelectorAll('.matriz-form-badge')).map(function (badge) {
+        return badge.dataset.value;
+      });
+      return row;
+    }).filter(function (row) {
+      return row.norma_17020 || row.nit_diois_019 || row.nit_diois_008 || row.mq || row.requisito || row.formularios.length;
+    });
+  }
+
+  function syncHidden() {
+    var rows = collectRows();
+    hiddenJson.value = JSON.stringify(rows);
+    resumo.value = rows.map(function (row) {
+      return row.requisito || row.mq || row.norma_17020;
+    }).filter(Boolean).join('\n');
+  }
+
+  addRowBtn.addEventListener('click', function () { addRow(); });
+  var initialRows = parseRows();
+  if (!initialRows.length) initialRows = legacyRows();
+  if (!initialRows.length) initialRows = [{}];
+  initialRows.forEach(addRow);
+
+  var form = hiddenJson.closest('form');
+  if (form) {
+    form.addEventListener('submit', syncHidden);
+  }
+}());
+</script>

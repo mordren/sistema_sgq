@@ -1,5 +1,6 @@
 from datetime import datetime
 from app.extensions import db
+from app.utils.datetime_utils import agora_brasilia
 
 
 class TipoDocumento:
@@ -110,14 +111,15 @@ class Documento(db.Model):
     requer_treinamento = db.Column(db.Boolean, default=False, nullable=False)
 
     # ── Metadata ───────────────────────────────────────────────────────────────
-    requisito_relacionado = db.Column(db.String(200), nullable=True)
+    requisito_relacionado = db.Column(db.Text, nullable=True)
+    matriz_correlacao_json = db.Column(db.Text, nullable=True)
     observacao = db.Column(db.Text, nullable=True)
     ativo = db.Column(db.Boolean, default=True, nullable=False)
-    criado_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    criado_em = db.Column(db.DateTime, default=agora_brasilia, nullable=False)
     atualizado_em = db.Column(
         db.DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=agora_brasilia,
+        onupdate=agora_brasilia,
         nullable=False,
     )
 

@@ -190,14 +190,14 @@
     branding: false,
 
     plugins: [
-      'lists', 'link', 'table', 'code',
+      'lists', 'link', 'table', 'code', 'image',
       'searchreplace', 'wordcount', 'fullscreen',
       'autolink', 'paste',
     ],
 
     toolbar: [
       'blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | removeformat',
-      'alignleft aligncenter alignright alignjustify | bullist numlist | outdent indent | blockquote | link table hr | searchreplace code fullscreen | undo redo',
+      'alignleft aligncenter alignright alignjustify | bullist numlist | outdent indent | blockquote | link image table hr | searchreplace code fullscreen | undo redo',
     ],
     toolbar_mode: 'wrap',
 
@@ -229,6 +229,59 @@
     /* Paste from Word — keep structure, strip Office garbage */
     paste_word_valid_elements: 'b,strong,i,em,u,s,span,p,h1,h2,h3,h4,ul,ol,li,table,tr,td,th,a',
     paste_retain_style_properties: 'color,background-color,font-size,font-family,text-align',
+
+    /* ── Image upload ── */
+    automatic_uploads: true,
+    images_file_types: 'jpeg,jpg,png,gif,webp',
+    paste_data_images: true,
+    /* Keep URLs as-is so content_html stores /documentos/editor/imagem/<file> */
+    convert_urls: false,
+    relative_urls: false,
+
+    /* Custom upload handler: sends the file with CSRF token */
+    images_upload_handler: function (blobInfo, progress) {
+      return new Promise(function (resolve, reject) {
+        var formData = new FormData();
+        formData.append('file', blobInfo.blob(), blobInfo.filename());
+
+        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '{{ url_for("documentos.editor_upload_imagem") }}');
+        xhr.setRequestHeader('X-CSRFToken', csrfToken);
+
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable) {
+            progress(Math.round((e.loaded / e.total) * 100));
+          }
+        };
+
+        xhr.onload = function () {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            try {
+              var resp = JSON.parse(xhr.responseText);
+              reject({ message: resp.error || 'Erro ao enviar imagem.', remove: true });
+            } catch (e) {
+              reject({ message: 'Erro ao enviar imagem.', remove: true });
+            }
+            return;
+          }
+          var json = JSON.parse(xhr.responseText);
+          if (!json || !json.location) {
+            reject({ message: 'Resposta inválida do servidor.', remove: true });
+            return;
+          }
+          resolve(json.location);
+        };
+
+        xhr.onerror = function () {
+          reject({ message: 'Erro de conexão ao enviar imagem.', remove: true });
+        };
+
+        xhr.send(formData);
+      });
+    },
   });
 
 })();

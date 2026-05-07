@@ -38,6 +38,7 @@ def create_app(config_name: str = 'default') -> Flask:
     # ── Import models so SQLAlchemy registers them ─────────────────────────────
     with app.app_context():
         from app import models  # noqa: F401
+        _migrate_lightweight_schema()
 
     return app
 
@@ -58,6 +59,20 @@ def _create_storage_dirs(app: Flask) -> None:
     ]
     for d in dirs:
         os.makedirs(d, exist_ok=True)
+
+
+def _migrate_lightweight_schema() -> None:
+    """SQLite-safe additions used by newer screens before Flask-Migrate runs."""
+    try:
+        rows = db.session.execute(db.text('PRAGMA table_info(documentos)')).fetchall()
+        existing = {row[1] for row in rows}
+        if 'matriz_correlacao_json' not in existing:
+            db.session.execute(
+                db.text('ALTER TABLE documentos ADD COLUMN matriz_correlacao_json TEXT')
+            )
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def _register_error_handlers(app: Flask) -> None:

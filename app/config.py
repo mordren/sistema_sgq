@@ -9,6 +9,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_ENABLED = True
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 52428800))  # 50 MB
+    APP_TIMEZONE = os.environ.get('APP_TIMEZONE', 'America/Sao_Paulo')
 
     # ── Storage paths ──────────────────────────────────────────────────────────
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -21,6 +22,7 @@ class Config:
     EXTERNOS_DIR = os.path.join(STORAGE_DIR, 'documentos', 'externos')
     EXPORTACOES_DIR = os.path.join(STORAGE_DIR, 'exportacoes')
     BACKUPS_DIR = os.path.join(STORAGE_DIR, 'backups')
+    EDITOR_IMAGENS_DIR = os.path.join(STORAGE_DIR, 'editor_imagens')
 
     # ── Allowed upload extensions ──────────────────────────────────────────────
     ALLOWED_DOCX_EXTENSIONS = {'docx'}

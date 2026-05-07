@@ -107,13 +107,7 @@
         </div>
         <div class="card-body">
           <div class="row g-3">
-            <div class="col-12 col-sm-8">
-              {{ form.requisito_relacionado.label(class="form-label fw-semibold small") }}
-              {{ form.requisito_relacionado(
-                  class="form-control",
-                  placeholder="Ex: ISO/IEC 17020 item 8.3"
-              ) }}
-            </div>
+            {% include 'documentos/_matriz_correlacao_form.html' %}
             <div class="col-12 d-flex gap-4 pt-2">
               <div class="form-check">
                 {{ form.distribuicao_tecnica(class="form-check-input") }}

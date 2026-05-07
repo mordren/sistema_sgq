@@ -1,13 +1,17 @@
+import io
+import json
 import os
 import re
+import uuid
 from datetime import datetime
+from types import SimpleNamespace
 
 from flask import (
     render_template, redirect, url_for, flash,
-    request, abort, send_file, current_app, Response,
+    request, abort, send_file, current_app, Response, jsonify,
 )
 from flask_login import login_required, current_user
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from app.documentos import documentos
 from werkzeug.utils import secure_filename
@@ -24,7 +28,7 @@ from app.documentos.exportar import (
     gerar_excel_lista_mestra, gerar_pdf_lista_mestra, gerar_csv_lista_mestra,
 )
 from app.extensions import db
-from app.models import Documento, Usuario, HistoricoEvento, RevisaoDocumento
+from app.models import Documento, Usuario, HistoricoEvento, RevisaoDocumento, MatrizCorrelacao
 from app.models.documento_externo import DocumentoExterno
 from app.models.lista_mestra_config import ListaMestraConfig
 from app.models.documento import TipoDocumento, StatusDocumento
@@ -36,6 +40,7 @@ from app.utils.file_utils import (
     caminho_vigente_pdf, caminho_editavel_docx,
     caminho_em_revisao, caminho_obsoleto, mover_arquivo, copiar_arquivo,
 )
+from app.utils.datetime_utils import agora_brasilia
 from app.utils.historico import registrar_evento
 
 
@@ -59,6 +64,88 @@ def _populate_user_selects(form) -> None:
     form.elaborado_por_id.choices = choices
     form.revisado_por_id.choices = choices
     form.aprovado_por_id.choices = choices
+
+
+def _ensure_documento_matriz_schema() -> None:
+    rows = db.session.execute(text('PRAGMA table_info(documentos)')).fetchall()
+    existing = {row[1] for row in rows}
+    if 'matriz_correlacao_json' not in existing:
+        db.session.execute(
+            text('ALTER TABLE documentos ADD COLUMN matriz_correlacao_json TEXT')
+        )
+        db.session.commit()
+
+
+def _formularios_choices():
+    return (
+        Documento.query
+        .filter(
+            Documento.ativo == True,
+            Documento.tipo_documento.in_([TipoDocumento.FOR_ADM, TipoDocumento.FOR_TEC]),
+            Documento.status != StatusDocumento.OBSOLETO,
+        )
+        .order_by(Documento.tipo_documento, Documento.codigo)
+        .all()
+    )
+
+
+def _normalize_matriz_json(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    try:
+        rows = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(rows, list):
+        return None
+
+    normalized = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item = {
+            'norma_17020': str(row.get('norma_17020') or '').strip(),
+            'nit_diois_019': str(row.get('nit_diois_019') or '').strip(),
+            'nit_diois_008': str(row.get('nit_diois_008') or '').strip(),
+            'mq': str(row.get('mq') or '').strip(),
+            'requisito': str(row.get('requisito') or '').strip(),
+            'formularios': [],
+        }
+        formularios = row.get('formularios') or []
+        if isinstance(formularios, str):
+            formularios = [formularios]
+        vistos = set()
+        for formulario in formularios:
+            codigo = str(formulario or '').strip()
+            if codigo and codigo.casefold() not in vistos:
+                item['formularios'].append(codigo)
+                vistos.add(codigo.casefold())
+        if any(item[key] for key in ['norma_17020', 'nit_diois_019', 'nit_diois_008', 'mq', 'requisito']):
+            normalized.append(item)
+
+    if not normalized:
+        return None
+    return json.dumps(normalized, ensure_ascii=False)
+
+
+def _resumo_requisitos_matriz(matriz_json: str | None, fallback: str | None = None) -> str | None:
+    if not matriz_json:
+        return (fallback or '').strip() or None
+    try:
+        rows = json.loads(matriz_json)
+    except (TypeError, ValueError):
+        return (fallback or '').strip() or None
+
+    requisitos = []
+    vistos = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        requisito = str(row.get('requisito') or row.get('mq') or row.get('norma_17020') or '').strip()
+        if requisito and requisito.casefold() not in vistos:
+            requisitos.append(requisito)
+            vistos.add(requisito.casefold())
+    return '\n'.join(requisitos) or None
 
 
 # ── Document list ──────────────────────────────────────────────────────────────
@@ -105,6 +192,467 @@ def lista():
     )
 
 
+# ── Obsolete documents ─────────────────────────────────────────────────────────
+
+def _parse_obsoleto_filename(filename: str) -> dict:
+    match = re.match(
+        r'^(?P<codigo>.+?)_Rev(?P<revisao>\d{2})_(?P<titulo>.+?)_OBSOLETO\.pdf$',
+        filename,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return {
+            'codigo': '',
+            'revisao': '',
+            'titulo': os.path.splitext(filename)[0],
+        }
+
+    return {
+        'codigo': match.group('codigo'),
+        'revisao': int(match.group('revisao')),
+        'titulo': match.group('titulo').replace('_', ' '),
+    }
+
+
+def _tipo_from_codigo(codigo: str) -> str:
+    if not codigo:
+        return ''
+    for tipo in sorted(TipoDocumento.TODOS, key=len, reverse=True):
+        if codigo.upper().startswith(tipo.upper()):
+            return tipo
+    return codigo.split('-', 1)[0]
+
+
+def _pdf_obsoleto_com_tarja(caminho_pdf: str):
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except Exception:
+        try:
+            import PyPDF2
+            PdfReader = PyPDF2.PdfReader
+            PdfWriter = PyPDF2.PdfWriter
+        except Exception:
+            return None
+
+    try:
+        from reportlab.pdfgen import canvas as rl_canvas
+    except Exception:
+        return None
+
+    try:
+        reader = PdfReader(caminho_pdf)
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            try:
+                media = page.mediabox
+                width = float(media.width)
+                height = float(media.height)
+            except Exception:
+                from reportlab.lib.pagesizes import A4
+                width, height = A4
+
+            packet = io.BytesIO()
+            c = rl_canvas.Canvas(packet, pagesize=(width, height))
+            c.saveState()
+            try:
+                c.translate(width / 2, height / 2)
+                c.rotate(35)
+                c.setFillColorRGB(0.75, 0, 0, alpha=0.18)
+                c.setStrokeColorRGB(0.75, 0, 0, alpha=0.35)
+                c.setLineWidth(2)
+                font_size = min(width, height) * 0.16
+                c.setFont('Helvetica-Bold', font_size)
+                text = 'OBSOLETO'
+                text_width = c.stringWidth(text, 'Helvetica-Bold', font_size)
+                pad_x = font_size * 0.28
+                pad_y = font_size * 0.22
+                c.rect(
+                    -text_width / 2 - pad_x,
+                    -font_size / 2 - pad_y,
+                    text_width + (2 * pad_x),
+                    font_size + (2 * pad_y),
+                    stroke=1,
+                    fill=1,
+                )
+                c.setFillColorRGB(0.75, 0, 0, alpha=0.55)
+                c.drawCentredString(0, -font_size * 0.35, text)
+            finally:
+                c.restoreState()
+            c.save()
+            packet.seek(0)
+
+            overlay_page = PdfReader(packet).pages[0]
+            try:
+                page.merge_page(overlay_page)
+            except Exception:
+                try:
+                    page.mergePage(overlay_page)
+                except Exception:
+                    pass
+
+            writer.add_page(page)
+
+        output = io.BytesIO()
+        writer.write(output)
+        output.seek(0)
+        return output
+    except Exception:
+        current_app.logger.exception('Erro ao aplicar tarja de obsoleto')
+        return None
+
+
+@documentos.route('/obsoletos', methods=['GET'])
+@login_required
+def obsoletos():
+    q_f = request.args.get('q', '').strip()
+    tipo_f = request.args.get('tipo', '').strip()
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+
+    obsoletos_dir = current_app.config['OBSOLETOS_DIR']
+    os.makedirs(obsoletos_dir, exist_ok=True)
+
+    docs_por_codigo = {
+        doc.codigo: doc
+        for doc in Documento.query.filter_by(ativo=True).all()
+    }
+
+    arquivos = []
+    for filename in os.listdir(obsoletos_dir):
+        if not filename.lower().endswith('.pdf'):
+            continue
+
+        caminho = os.path.join(obsoletos_dir, filename)
+        if not os.path.isfile(caminho):
+            continue
+
+        meta = _parse_obsoleto_filename(filename)
+        doc = docs_por_codigo.get(meta['codigo'])
+        tipo = doc.tipo_documento if doc else _tipo_from_codigo(meta['codigo'])
+        titulo = doc.titulo if doc else meta['titulo']
+        stat = os.stat(caminho)
+
+        item = {
+            'filename': filename,
+            'codigo': meta['codigo'],
+            'revisao': meta['revisao'],
+            'titulo': titulo,
+            'titulo_arquivo': meta['titulo'],
+            'tipo_documento': tipo,
+            'tamanho': stat.st_size,
+            'modificado_em': datetime.fromtimestamp(stat.st_mtime),
+            'doc': doc,
+        }
+
+        if tipo_f and item['tipo_documento'] != tipo_f:
+            continue
+
+        if q_f:
+            haystack = ' '.join([
+                item['filename'],
+                item['codigo'] or '',
+                item['titulo'] or '',
+                item['titulo_arquivo'] or '',
+                item['tipo_documento'] or '',
+            ]).lower()
+            if q_f.lower() not in haystack:
+                continue
+
+        arquivos.append(item)
+
+    arquivos.sort(
+        key=lambda item: (
+            item['tipo_documento'] or '',
+            item['codigo'] or '',
+            item['revisao'] if item['revisao'] != '' else -1,
+            item['filename'],
+        )
+    )
+
+    total = len(arquivos)
+    pages = max((total + per_page - 1) // per_page, 1)
+    if page < 1:
+        page = 1
+    if page > pages:
+        page = pages
+
+    start = (page - 1) * per_page
+    itens = arquivos[start:start + per_page]
+
+    return render_template(
+        'documentos/obsoletos.html',
+        title='Documentos Obsoletos',
+        arquivos=itens,
+        total=total,
+        page=page,
+        pages=pages,
+        has_prev=page > 1,
+        has_next=page < pages,
+        prev_num=page - 1,
+        next_num=page + 1,
+        tipos=TipoDocumento.TODOS,
+        tipo_f=tipo_f,
+        q_f=q_f,
+    )
+
+
+@documentos.route('/obsoletos/download/<path:filename>', methods=['GET'])
+@login_required
+def download_obsoleto(filename):
+    try:
+        caminho = caminho_seguro(current_app.config['OBSOLETOS_DIR'], filename)
+    except ValueError:
+        abort(400)
+
+    if not arquivo_existe(caminho):
+        flash('Arquivo obsoleto não encontrado.', 'danger')
+        return redirect(url_for('documentos.obsoletos'))
+
+    pdf_com_tarja = _pdf_obsoleto_com_tarja(caminho)
+
+    return send_file(
+        pdf_com_tarja or caminho,
+        mimetype='application/pdf',
+        as_attachment=False,
+        download_name=os.path.basename(filename),
+    )
+
+
+# ── Matriz de Correlação ───────────────────────────────────────────────────────
+
+def _ensure_matriz_correlacao_schema() -> None:
+    required_columns = {
+        'norma_17020': 'VARCHAR(100)',
+        'nit_diois_019': 'VARCHAR(100)',
+        'nit_diois_008': 'VARCHAR(100)',
+        'mq': 'VARCHAR(100)',
+        'procedimentos': 'TEXT',
+        'formularios': 'TEXT',
+    }
+    rows = db.session.execute(text('PRAGMA table_info(matriz_correlacao)')).fetchall()
+    existing = {row[1] for row in rows}
+    for column, column_type in required_columns.items():
+        if column not in existing:
+            db.session.execute(
+                text(f'ALTER TABLE matriz_correlacao ADD COLUMN {column} {column_type}')
+            )
+    db.session.commit()
+
+
+def _matriz_documentos_choices():
+    return (
+        Documento.query
+        .filter(
+            Documento.ativo == True,
+            Documento.status != StatusDocumento.OBSOLETO,
+        )
+        .order_by(Documento.tipo_documento, Documento.codigo)
+        .all()
+    )
+
+
+def _split_requisitos_relacionados(valor: str | None) -> list[str]:
+    if not valor:
+        return []
+
+    requisitos = []
+    vistos = set()
+    for linha in re.split(r'[\r\n;]+', valor):
+        requisito = linha.strip()
+        if not requisito or requisito.lower() in {'n/a', 'na', 'não aplicável', 'nao aplicavel'}:
+            continue
+        chave = requisito.casefold()
+        if chave not in vistos:
+            requisitos.append(requisito)
+            vistos.add(chave)
+    return requisitos
+
+
+def _doc_matriz_label(doc: Documento) -> str:
+    return f'{doc.codigo} - {doc.titulo}'
+
+
+def _add_unique(lista: list[str], valor: str) -> None:
+    if valor and valor not in lista:
+        lista.append(valor)
+
+
+def _classificar_documento_na_matriz(doc: Documento, requisito: str, linha: dict) -> None:
+    codigo = (doc.codigo or '').upper()
+    titulo = (doc.titulo or '').upper()
+    tipo = doc.tipo_documento
+    label = _doc_matriz_label(doc)
+
+    if tipo == TipoDocumento.MQ:
+        _add_unique(linha['mq'], label)
+    elif tipo in {TipoDocumento.PA, TipoDocumento.PT, TipoDocumento.IT}:
+        _add_unique(linha['procedimentos'], label)
+    elif tipo in {TipoDocumento.FOR_ADM, TipoDocumento.FOR_TEC}:
+        _add_unique(linha['formularios'], label)
+    elif tipo == TipoDocumento.NORMA_EXTERNA and '17020' in f'{codigo} {titulo}':
+        _add_unique(linha['norma_17020'], requisito)
+    elif tipo == TipoDocumento.NIT and '019' in f'{codigo} {titulo}':
+        _add_unique(linha['nit_diois_019'], requisito)
+    elif tipo == TipoDocumento.NIT and '008' in f'{codigo} {titulo}':
+        _add_unique(linha['nit_diois_008'], requisito)
+    elif tipo == TipoDocumento.NIT:
+        _add_unique(linha['nit_diois_019'], f'{doc.codigo}: {requisito}')
+    else:
+        _add_unique(linha['procedimentos'], label)
+
+
+def _gerar_matriz_correlacao_automatica(q_f: str = '', doc_f: int = 0) -> list[SimpleNamespace]:
+    _ensure_documento_matriz_schema()
+    documentos = (
+        Documento.query
+        .filter(
+            Documento.ativo == True,
+            Documento.status != StatusDocumento.OBSOLETO,
+        )
+        .order_by(Documento.tipo_documento, Documento.codigo)
+        .all()
+    )
+
+    linhas = {}
+    for doc in documentos:
+        if doc_f and doc.id != doc_f:
+            continue
+
+        structured_rows = []
+        if doc.matriz_correlacao_json:
+            try:
+                loaded_rows = json.loads(doc.matriz_correlacao_json)
+            except (TypeError, ValueError):
+                loaded_rows = []
+            if isinstance(loaded_rows, list):
+                structured_rows = [row for row in loaded_rows if isinstance(row, dict)]
+
+        if structured_rows:
+            iterable_rows = structured_rows
+        else:
+            iterable_rows = [
+                {'requisito': requisito}
+                for requisito in _split_requisitos_relacionados(doc.requisito_relacionado)
+            ]
+
+        for row in iterable_rows:
+            requisito = str(row.get('requisito') or row.get('mq') or row.get('norma_17020') or '').strip()
+            if not requisito:
+                continue
+            norma_17020 = str(row.get('norma_17020') or '').strip()
+            nit_diois_019 = str(row.get('nit_diois_019') or '').strip()
+            nit_diois_008 = str(row.get('nit_diois_008') or '').strip()
+            mq = str(row.get('mq') or '').strip()
+            formularios = row.get('formularios') or []
+            if isinstance(formularios, str):
+                formularios = [formularios]
+
+            chave = '|'.join([
+                norma_17020.casefold(),
+                nit_diois_019.casefold(),
+                nit_diois_008.casefold(),
+                mq.casefold(),
+                requisito.casefold(),
+            ])
+            linha = linhas.setdefault(
+                chave,
+                {
+                    'norma_17020': [],
+                    'nit_diois_019': [],
+                    'nit_diois_008': [],
+                    'mq': [],
+                    'requisito': requisito,
+                    'descricao_requisito': '',
+                    'procedimentos': [],
+                    'formularios': [],
+                },
+            )
+            _add_unique(linha['norma_17020'], norma_17020)
+            _add_unique(linha['nit_diois_019'], nit_diois_019)
+            _add_unique(linha['nit_diois_008'], nit_diois_008)
+            _add_unique(linha['mq'], mq)
+            _classificar_documento_na_matriz(doc, requisito, linha)
+            for formulario in formularios:
+                _add_unique(linha['formularios'], str(formulario or '').strip())
+
+    itens = []
+    busca = q_f.casefold()
+    for linha in linhas.values():
+        item = SimpleNamespace(
+            norma_17020='\n'.join(linha['norma_17020']),
+            nit_diois_019='\n'.join(linha['nit_diois_019']),
+            nit_diois_008='\n'.join(linha['nit_diois_008']),
+            mq='\n'.join(linha['mq']),
+            requisito=linha['requisito'],
+            descricao_requisito=linha['descricao_requisito'],
+            procedimentos='\n'.join(linha['procedimentos']),
+            formularios='\n'.join(linha['formularios']),
+        )
+        if busca:
+            haystack = '\n'.join([
+                item.norma_17020,
+                item.nit_diois_019,
+                item.nit_diois_008,
+                item.mq,
+                item.requisito,
+                item.procedimentos,
+                item.formularios,
+            ]).casefold()
+            if busca not in haystack:
+                continue
+        itens.append(item)
+
+    return sorted(
+        itens,
+        key=lambda item: (
+            item.norma_17020 or item.requisito,
+            item.mq or '',
+            item.requisito,
+        ),
+    )
+
+
+@documentos.route('/matriz-correlacao', methods=['GET', 'POST'])
+@login_required
+def matriz_correlacao():
+    _ensure_matriz_correlacao_schema()
+    _ensure_documento_matriz_schema()
+
+    if request.method == 'POST':
+        flash('A matriz é gerada automaticamente pelos requisitos cadastrados nos documentos.', 'info')
+        return redirect(url_for('documentos.matriz_correlacao'))
+
+    q_f = request.args.get('q', '').strip()
+    doc_f = request.args.get('documento_id', type=int)
+
+    documentos_choices = _matriz_documentos_choices()
+    itens = _gerar_matriz_correlacao_automatica(q_f=q_f, doc_f=doc_f or 0)
+
+    return render_template(
+        'documentos/matriz_correlacao.html',
+        title='Matriz de Correlação',
+        itens=itens,
+        documentos_choices=documentos_choices,
+        q_f=q_f,
+        doc_f=doc_f or 0,
+        pode_editar=current_user.pode_editar_documentos(),
+    )
+
+
+@documentos.route('/matriz-correlacao/<int:id>/excluir', methods=['POST'])
+@login_required
+def excluir_matriz_correlacao(id):
+    if not current_user.pode_editar_documentos():
+        abort(403)
+
+    item = MatrizCorrelacao.query.get_or_404(id)
+    db.session.delete(item)
+    db.session.commit()
+    flash('Item removido da matriz.', 'success')
+    return redirect(url_for('documentos.matriz_correlacao'))
+
+
 # ── Lista Mestra ───────────────────────────────────────────────────────────────
 
 @documentos.route('/lista-mestra', methods=['GET'])
@@ -140,7 +688,7 @@ def lista_mestra():
         title='Lista Mestra',
         documentos=docs,
         total=len(docs),
-        gerado_em=datetime.utcnow(),
+        gerado_em=agora_brasilia(),
         TipoDocumento=TipoDocumento,
         cfg=cfg,
         pode_configurar=pode_configurar,
@@ -167,7 +715,7 @@ def exportar_lista_mestra(formato):
         .all()
     )
 
-    stamp = datetime.utcnow().strftime('%Y%m%d_%H%M')
+    stamp = agora_brasilia().strftime('%Y%m%d_%H%M')
     fmt = formato.lower()
     cfg = ListaMestraConfig.get()
 
@@ -227,7 +775,7 @@ def configurar_lista_mestra():
         cfg.elaborado_por_id = form.elaborado_por_id.data or None
         cfg.revisado_por_id = form.revisado_por_id.data or None
         cfg.aprovado_por_id = form.aprovado_por_id.data or None
-        cfg.atualizado_em = datetime.utcnow()
+        cfg.atualizado_em = agora_brasilia()
         db.session.commit()
         flash('Configuração da Lista Mestra salva com sucesso!', 'success')
         return redirect(url_for('documentos.lista_mestra'))
@@ -253,18 +801,24 @@ def novo():
     if not current_user.pode_editar_documentos():
         abort(403)
 
+    _ensure_documento_matriz_schema()
     form = NovoDocumentoForm()
     form.tipo_documento.choices = _choices_tipos()
     _populate_user_selects(form)
+    formularios_choices = _formularios_choices()
 
     if form.validate_on_submit():
         codigo = form.codigo.data.strip().upper()
+        matriz_json = _normalize_matriz_json(form.matriz_correlacao_json.data)
 
         # Duplicate código check
         if Documento.query.filter_by(codigo=codigo).first():
             flash(f'Já existe um documento com o código {codigo}.', 'danger')
             return render_template(
-                'documentos/novo.html', title='Novo Documento', form=form
+                'documentos/novo.html',
+                title='Novo Documento',
+                form=form,
+                formularios_choices=formularios_choices,
             )
 
         doc = Documento(
@@ -276,7 +830,11 @@ def novo():
             elaborado_por_id=form.elaborado_por_id.data or None,
             revisado_por_id=form.revisado_por_id.data or None,
             aprovado_por_id=form.aprovado_por_id.data or None,
-            requisito_relacionado=form.requisito_relacionado.data.strip() or None,
+            requisito_relacionado=_resumo_requisitos_matriz(
+                matriz_json,
+                form.requisito_relacionado.data,
+            ),
+            matriz_correlacao_json=matriz_json,
             distribuicao_tecnica=form.distribuicao_tecnica.data,
             distribuicao_administrativa=form.distribuicao_administrativa.data,
             requer_treinamento=form.requer_treinamento.data,
@@ -326,7 +884,10 @@ def novo():
         return redirect(url_for('documentos.detalhe', id=doc.id))
 
     return render_template(
-        'documentos/novo.html', title='Novo Documento', form=form
+        'documentos/novo.html',
+        title='Novo Documento',
+        form=form,
+        formularios_choices=formularios_choices,
     )
 
 
@@ -465,22 +1026,29 @@ def editar(id):
         )
         return redirect(url_for('documentos.detalhe', id=id))
 
+    _ensure_documento_matriz_schema()
     form = EditarDocumentoForm(obj=doc)
     form.tipo_documento.choices = _choices_tipos()
     _populate_user_selects(form)
+    formularios_choices = _formularios_choices()
 
     if form.validate_on_submit():
+        matriz_json = _normalize_matriz_json(form.matriz_correlacao_json.data)
         doc.titulo = form.titulo.data.strip()
         doc.tipo_documento = form.tipo_documento.data
         doc.elaborado_por_id = form.elaborado_por_id.data or None
         doc.revisado_por_id = form.revisado_por_id.data or None
         doc.aprovado_por_id = form.aprovado_por_id.data or None
-        doc.requisito_relacionado = form.requisito_relacionado.data.strip() or None
+        doc.requisito_relacionado = _resumo_requisitos_matriz(
+            matriz_json,
+            form.requisito_relacionado.data,
+        )
+        doc.matriz_correlacao_json = matriz_json
         doc.distribuicao_tecnica = form.distribuicao_tecnica.data
         doc.distribuicao_administrativa = form.distribuicao_administrativa.data
         doc.requer_treinamento = form.requer_treinamento.data
         doc.observacao = form.observacao.data.strip() or None
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
 
         registrar_evento(
             doc.id, current_user.id,
@@ -492,17 +1060,27 @@ def editar(id):
         flash('Documento atualizado com sucesso!', 'success')
         return redirect(url_for('documentos.detalhe', id=id))
 
+    if request.method == 'POST' and form.errors:
+        erros = '; '.join(
+            f'{field}: {', '.join(errs)}'
+            for field, errs in form.errors.items()
+        )
+        current_app.logger.warning('editar validation failed: %s', erros)
+        flash(f'Erro ao salvar: {erros}', 'danger')
+
     # Pre-populate optional selects with stored value (or 0 for empty)
     if request.method == 'GET':
         form.elaborado_por_id.data = doc.elaborado_por_id or 0
         form.revisado_por_id.data = doc.revisado_por_id or 0
         form.aprovado_por_id.data = doc.aprovado_por_id or 0
+        form.matriz_correlacao_json.data = doc.matriz_correlacao_json or ''
 
     return render_template(
         'documentos/editar.html',
         title=f'Editar – {doc.codigo}',
         form=form,
         doc=doc,
+        formularios_choices=formularios_choices,
     )
 
 
@@ -533,7 +1111,7 @@ def upload_docx(id):
             nome,
         )
         doc.caminho_docx_editavel = nome
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
 
         registrar_evento(
             doc.id, current_user.id,
@@ -575,7 +1153,7 @@ def upload_pdf(id):
             nome,
         )
         doc.caminho_pdf_vigente = nome
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
 
         registrar_evento(
             doc.id, current_user.id,
@@ -639,7 +1217,7 @@ def publicar_vigente(id):
     )
 
     if form.validate_on_submit():
-        agora = datetime.utcnow()
+        agora = agora_brasilia()
 
         # Generate PDF from online content if needed
         if doc.content_mode == 'online_editor' and doc.content_html:
@@ -734,7 +1312,39 @@ def download_pdf(id):
     if not arquivo_existe(caminho):
         flash('Arquivo PDF não encontrado no servidor.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
+    # Try to overlay running header onto existing PDF (requires pypdf/PyPDF2 + reportlab)
+    try:
+        from app.utils.html_pdf import overlay_header_on_pdf, metadata_from_documento, gerar_pdf_de_html
+    except Exception:
+        overlay_header_on_pdf = None
 
+    if overlay_header_on_pdf:
+        meta = metadata_from_documento(doc)
+        buf = overlay_header_on_pdf(caminho, meta)
+        if buf:
+            return send_file(
+                buf,
+                mimetype='application/pdf',
+                as_attachment=False,
+                download_name=doc.caminho_pdf_vigente,
+            )
+
+        # If overlay failed but we have HTML content, regenerate PDF with header
+        if getattr(doc, 'content_html', None):
+            try:
+                tmp_path = caminho + '.tmp.pdf'
+                ok = gerar_pdf_de_html(doc.content_html, metadata_from_documento(doc), tmp_path)
+                if ok and os.path.exists(tmp_path):
+                    return send_file(
+                        tmp_path,
+                        mimetype='application/pdf',
+                        as_attachment=False,
+                        download_name=doc.caminho_pdf_vigente,
+                    )
+            except Exception:
+                current_app.logger.exception('Failed to regenerate PDF with header')
+
+    # Fallback: serve stored PDF as-is
     return send_file(
         caminho,
         mimetype='application/pdf',
@@ -850,7 +1460,7 @@ def abrir_revisao(id):
         status=StatusDocumento.EM_REVISAO,
         motivo_alteracao=form.motivo.data.strip(),
         elaborado_por_id=current_user.id,
-        data_elaboracao=datetime.utcnow(),
+        data_elaboracao=agora_brasilia(),
         arquivo_docx=nome_docx,
         content_html=doc.content_html if doc.content_mode == 'online_editor' else None,
         content_mode=doc.content_mode if doc.content_mode == 'online_editor' else None,
@@ -858,7 +1468,7 @@ def abrir_revisao(id):
     db.session.add(revisao)
 
     doc.status = StatusDocumento.EM_REVISAO
-    doc.atualizado_em = datetime.utcnow()
+    doc.atualizado_em = agora_brasilia()
 
     registrar_evento(
         doc.id, current_user.id,
@@ -906,7 +1516,7 @@ def upload_docx_revisao(id, rev_id):
         revisao.arquivo_docx = nome
         revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
         doc.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
         registrar_evento(
             doc.id, current_user.id,
             AcaoEvento.ARQUIVO_ENVIADO,
@@ -950,7 +1560,7 @@ def upload_pdf_revisao(id, rev_id):
         revisao.arquivo_pdf = nome
         revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
         doc.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
         registrar_evento(
             doc.id, current_user.id,
             AcaoEvento.ARQUIVO_ENVIADO,
@@ -989,7 +1599,7 @@ def enviar_para_aprovacao(id, rev_id):
 
     revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
     doc.status = StatusDocumento.AGUARDANDO_APROVACAO
-    doc.atualizado_em = datetime.utcnow()
+    doc.atualizado_em = agora_brasilia()
 
     registrar_evento(
         doc.id, current_user.id,
@@ -1038,7 +1648,7 @@ def aprovar_revisao(id, rev_id):
         flash('Preencha todos os campos de aprovação.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    agora = datetime.utcnow()
+    agora = agora_brasilia()
     vigentes_dir = current_app.config['VIGENTES_PDF_DIR']
     em_revisao_dir = current_app.config['EM_REVISAO_DIR']
     obsoletos_dir = current_app.config['OBSOLETOS_DIR']
@@ -1195,7 +1805,7 @@ def reprovar_revisao(id, rev_id):
 
     revisao.status = StatusDocumento.EM_REVISAO
     doc.status = StatusDocumento.EM_REVISAO
-    doc.atualizado_em = datetime.utcnow()
+    doc.atualizado_em = agora_brasilia()
 
     registrar_evento(
         doc.id, current_user.id,
@@ -1240,7 +1850,7 @@ def publicar_revisao(id, rev_id):
         flash('Preencha a descrição das alterações.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    agora = datetime.utcnow()
+    agora = agora_brasilia()
     vigentes_dir = current_app.config['VIGENTES_PDF_DIR']
     em_revisao_dir = current_app.config['EM_REVISAO_DIR']
     obsoletos_dir = current_app.config['OBSOLETOS_DIR']
@@ -1339,6 +1949,10 @@ def publicar_revisao(id, rev_id):
     doc.status = StatusDocumento.VIGENTE
     doc.caminho_pdf_vigente = nome_pdf_novo if pdf_gerado else doc.caminho_pdf_vigente
     doc.caminho_docx_editavel = nome_docx_novo
+    doc.elaborado_por_id = revisao.elaborado_por_id
+    doc.revisado_por_id = revisao.revisado_por_id
+    doc.aprovado_por_id = revisao.aprovado_por_id
+    doc.data_aprovacao = revisao.data_aprovacao or agora
     doc.data_publicacao = agora
     doc.atualizado_em = agora
     # Carry online content to document record
@@ -1480,7 +2094,7 @@ def editor_documento(id):
             doc.descricao_alteracao = form.descricao_alteracao.data.strip()
         if form.item_alterado.data:
             doc.item_alterado = form.item_alterado.data.strip()
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
         registrar_evento(
             doc.id, current_user.id,
             AcaoEvento.CONTEUDO_EDITADO_ONLINE,
@@ -1537,7 +2151,7 @@ def editor_revisao(id, rev_id):
             revisao.item_alterado = form.item_alterado.data.strip()
         revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
         doc.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.atualizado_em = datetime.utcnow()
+        doc.atualizado_em = agora_brasilia()
         registrar_evento(
             doc.id, current_user.id,
             AcaoEvento.CONTEUDO_EDITADO_ONLINE,
@@ -1719,7 +2333,7 @@ def tornar_obsoleto(id):
         flash('Informe o motivo para tornar o documento obsoleto.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    agora = datetime.utcnow()
+    agora = agora_brasilia()
     vigentes_dir = current_app.config['VIGENTES_PDF_DIR']
     obsoletos_dir = current_app.config['OBSOLETOS_DIR']
 
@@ -1764,7 +2378,7 @@ def documentos_externos():
             original = secure_filename(f.filename)
             ext = os.path.splitext(original)[1]
             prefixo = re.sub(r'[^\w]', '_', (form.codigo.data or form.titulo.data)[:30])
-            arquivo_nome = f"{prefixo}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}{ext}"
+            arquivo_nome = f"{prefixo}_{agora_brasilia().strftime('%Y%m%d_%H%M%S')}{ext}"
             ext_dir = current_app.config['EXTERNOS_DIR']
             os.makedirs(ext_dir, exist_ok=True)
             f.save(os.path.join(ext_dir, arquivo_nome))
@@ -1798,7 +2412,7 @@ def documentos_externos():
             observacao=(form.observacao.data or '').strip() or None,
             status='Vigente',
             enviado_por_id=current_user.id,
-            data_envio=datetime.utcnow(),
+            data_envio=agora_brasilia(),
         )
         db.session.add(novo)
         db.session.commit()
@@ -1878,7 +2492,7 @@ def editar_externo(id):
             flash('Formato de arquivo não permitido.', 'danger')
             return redirect(url_for('documentos.documentos_externos'))
         prefixo = re.sub(r'[^\w]', '_', (doc.codigo or doc.titulo)[:30])
-        arquivo_nome = f"{prefixo}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}{ext}"
+        arquivo_nome = f"{prefixo}_{agora_brasilia().strftime('%Y%m%d_%H%M%S')}{ext}"
         ext_dir = current_app.config['EXTERNOS_DIR']
         os.makedirs(ext_dir, exist_ok=True)
         arq.save(os.path.join(ext_dir, arquivo_nome))
@@ -1922,4 +2536,56 @@ def visualizar_externo(id):
         ext_suportada=ext_suportada,
         arquivo_url=arquivo_url,
     )
+
+
+# ── Editor image upload / serve ────────────────────────────────────────────────
+
+_ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+
+@documentos.route('/editor/upload-imagem', methods=['POST'])
+@login_required
+def editor_upload_imagem():
+    """Receive an image upload from TinyMCE and return {"location": url}."""
+    if not current_user.pode_editar_documentos():
+        return jsonify({'error': 'Você não tem permissão para executar esta ação.'}), 403
+
+    arquivo = request.files.get('file')
+    if not arquivo or not arquivo.filename:
+        return jsonify({'error': 'Nenhum arquivo enviado.'}), 400
+
+    ext = os.path.splitext(secure_filename(arquivo.filename))[1].lstrip('.').lower()
+    if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+        return jsonify({'error': 'Formato de imagem não permitido. Use PNG, JPG, JPEG, GIF ou WEBP.'}), 415
+
+    imagens_dir = current_app.config['EDITOR_IMAGENS_DIR']
+    os.makedirs(imagens_dir, exist_ok=True)
+
+    nome_unico = f"{uuid.uuid4().hex}.{ext}"
+    destino = os.path.join(imagens_dir, nome_unico)
+    try:
+        arquivo.save(destino)
+    except Exception:
+        current_app.logger.exception('Erro ao salvar imagem do editor')
+        return jsonify({'error': 'Erro ao enviar imagem.'}), 500
+
+    location = url_for('documentos.editor_serve_imagem', filename=nome_unico, _external=False)
+    return jsonify({'location': location}), 200
+
+
+@documentos.route('/editor/imagem/<filename>')
+@login_required
+def editor_serve_imagem(filename):
+    """Serve an image that was uploaded via the online editor."""
+    # Prevent path traversal: basename only
+    safe = os.path.basename(secure_filename(filename))
+    if not safe or safe != filename:
+        abort(404)
+
+    imagens_dir = current_app.config['EDITOR_IMAGENS_DIR']
+    caminho = os.path.join(imagens_dir, safe)
+    if not os.path.isfile(caminho):
+        abort(404)
+
+    return send_file(caminho)
 

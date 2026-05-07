@@ -2,7 +2,7 @@ from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileAllowed
 from wtforms import (
     StringField, SelectField, BooleanField, TextAreaField,
-    IntegerField, SubmitField,
+    IntegerField, SubmitField, HiddenField,
 )
 from wtforms.validators import DataRequired, Length, Optional, NumberRange
 
@@ -47,10 +47,11 @@ class NovoDocumentoForm(FlaskForm):
     )
 
     # ── Metadata ───────────────────────────────────────────────────────────────
-    requisito_relacionado = StringField(
-        'Requisito relacionado',
-        validators=[Optional(), Length(max=200)],
+    requisito_relacionado = TextAreaField(
+        'Requisitos relacionados',
+        validators=[Optional(), Length(max=2000)],
     )
+    matriz_correlacao_json = HiddenField(validators=[Optional(), Length(max=200000)])
     distribuicao_tecnica = BooleanField('Distribuição técnica')
     distribuicao_administrativa = BooleanField('Distribuição administrativa')
     requer_treinamento = BooleanField('Requer treinamento')
@@ -95,9 +96,10 @@ class EditarDocumentoForm(FlaskForm):
     aprovado_por_id = SelectField(
         'Aprovado por', coerce=int, choices=[], validators=[Optional()]
     )
-    requisito_relacionado = StringField(
-        'Requisito relacionado', validators=[Optional(), Length(max=200)]
+    requisito_relacionado = TextAreaField(
+        'Requisitos relacionados', validators=[Optional(), Length(max=2000)]
     )
+    matriz_correlacao_json = HiddenField(validators=[Optional(), Length(max=200000)])
     distribuicao_tecnica = BooleanField('Distribuição técnica')
     distribuicao_administrativa = BooleanField('Distribuição administrativa')
     requer_treinamento = BooleanField('Requer treinamento')

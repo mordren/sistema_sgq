@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from app.extensions import db
+from app.utils.datetime_utils import agora_brasilia
 
 
 class DocumentoExterno(db.Model):
@@ -33,13 +34,13 @@ class DocumentoExterno(db.Model):
     enviado_por_id = db.Column(
         db.Integer, db.ForeignKey('usuarios.id'), nullable=True
     )
-    data_envio = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    data_envio = db.Column(db.DateTime, default=agora_brasilia, nullable=False)
 
-    criado_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    criado_em = db.Column(db.DateTime, default=agora_brasilia, nullable=False)
     atualizado_em = db.Column(
         db.DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=agora_brasilia,
+        onupdate=agora_brasilia,
         nullable=False,
     )
 
