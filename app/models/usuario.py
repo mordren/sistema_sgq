@@ -35,6 +35,7 @@ class Usuario(UserMixin, db.Model):
     )
     ativo = db.Column(db.Boolean, default=True, nullable=False)
     data_criacao = db.Column(db.DateTime, default=agora_brasilia, nullable=False)
+    revisor_padrao = db.Column(db.Boolean, default=False, nullable=False)
 
     # ── Relationships ──────────────────────────────────────────────────────────
     documentos_elaborados = db.relationship(
@@ -87,6 +88,14 @@ class Usuario(UserMixin, db.Model):
             Perfil.RESPONSAVEL_TECNICO,
         ]
 
+    def eh_auditor_externo(self) -> bool:
+        """Returns True for the read-only Auditor Externo / Técnico profile."""
+        return self.perfil == Perfil.AUDITOR_EXTERNO
+
+    def pode_editar_metadados(self) -> bool:
+        """Allow editing document title/matrix metadata without opening a revision."""
+        return self.perfil in [Perfil.ADMINISTRADOR, Perfil.RESPONSAVEL_QUALIDADE]
+
     def pode_gerenciar_usuarios(self) -> bool:
         return self.perfil == Perfil.ADMINISTRADOR
 
@@ -100,6 +109,11 @@ class Usuario(UserMixin, db.Model):
 
     def __repr__(self) -> str:
         return f'<Usuario {self.nome} [{self.perfil}]>'
+
+    @classmethod
+    def revisor_padrao_ativo(cls):
+        """Return the user marked as default reviewer, or None."""
+        return cls.query.filter_by(revisor_padrao=True, ativo=True).first()
 
 
 @login_manager.user_loader

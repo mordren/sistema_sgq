@@ -17,10 +17,8 @@ class TipoDocumento:
     DOQ = 'DOQ'
     NIE = 'NIE'
 
-    TODOS = [
-        MQ, PA, PT, IT, FOR_ADM, FOR_TEC,
-        NORMA_EXTERNA, PORTARIA, RESOLUCAO, NIT, DOQ, NIE,
-    ]
+    # Types available for new SGQ internal documents
+    TODOS = [MQ, PA, PT, IT, FOR_ADM, FOR_TEC]
 
     LABELS = {
         MQ: 'MQ – Manual da Qualidade',

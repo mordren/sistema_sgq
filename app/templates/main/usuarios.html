@@ -38,7 +38,15 @@
       <tbody>
         {% for u in usuarios %}
         <tr class="{% if not u.ativo %}text-muted{% endif %}">
-          <td class="fw-semibold">{{ u.nome }}</td>
+          <td class="fw-semibold">
+            {{ u.nome }}
+            {% if u.revisor_padrao %}
+              <span class="badge bg-info-subtle text-info border border-info-subtle small ms-1"
+                    title="Revisor padrão de documentos internos">
+                <i class="bi bi-person-check"></i> Revisor Padrão
+              </span>
+            {% endif %}
+          </td>
           <td class="small">{{ u.email }}</td>
           <td>
             <span class="badge

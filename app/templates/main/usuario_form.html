@@ -63,6 +63,19 @@
         <label for="ativo" class="form-check-label">Usuário ativo</label>
       </div>
 
+      {# Revisor Padrão #}
+      <div class="mb-3 form-check">
+        <input type="checkbox" id="revisor_padrao" name="revisor_padrao" class="form-check-input"
+               {% if form_data.get('revisor_padrao') or (not form_data and usuario and usuario.revisor_padrao) %}checked{% endif %}>
+        <label for="revisor_padrao" class="form-check-label">
+          Revisor padrão de documentos internos
+          <span class="text-muted small d-block">
+            Apenas um usuário pode ser o revisor padrão ao mesmo tempo.
+            Ao marcar outro, o anterior é removido automaticamente.
+          </span>
+        </label>
+      </div>
+
       <hr class="my-3">
 
       {# Senha #}

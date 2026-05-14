@@ -15,8 +15,7 @@
   </div>
 </div>
 
-<form method="POST" action="{{ url_for('documentos.novo') }}"
-      enctype="multipart/form-data" novalidate>
+<form method="POST" action="{{ url_for('documentos.novo') }}" novalidate>
   {{ form.hidden_tag() }}
 
   <div class="row g-4">
@@ -113,41 +112,17 @@
     <!-- ── Right column ────────────────────────────────────────────────────── -->
     <div class="col-12 col-lg-4">
 
-      <!-- Section: Arquivos -->
+      <!-- Section: Conteúdo Online -->
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-white border-bottom fw-semibold">
-          <i class="bi bi-paperclip me-2 text-primary"></i>Arquivos (opcionais)
+          <i class="bi bi-pencil-square me-2 text-primary"></i>Conteúdo do Documento
         </div>
         <div class="card-body">
-
-          <!-- DOCX upload -->
-          <div class="mb-3">
-            {{ form.arquivo_docx.label(class="form-label fw-semibold small") }}
-            {{ form.arquivo_docx(
-                class="form-control form-control-sm" ~ (" is-invalid" if form.arquivo_docx.errors else ""),
-                accept=".docx"
-            ) }}
-            {% for e in form.arquivo_docx.errors %}
-              <div class="invalid-feedback">{{ e }}</div>
-            {% endfor %}
-            <div class="form-text">Apenas arquivos <code>.docx</code>.</div>
-          </div>
-
-          <!-- PDF upload -->
-          <div class="mb-2">
-            {{ form.arquivo_pdf.label(class="form-label fw-semibold small") }}
-            {{ form.arquivo_pdf(
-                class="form-control form-control-sm" ~ (" is-invalid" if form.arquivo_pdf.errors else ""),
-                accept=".pdf"
-            ) }}
-            {% for e in form.arquivo_pdf.errors %}
-              <div class="invalid-feedback">{{ e }}</div>
-            {% endfor %}
-            <div class="form-text">
-              Envie o PDF existente para importação de documentos já controlados.
-            </div>
-          </div>
-
+          <p class="small text-muted mb-0">
+            Documentos SGQ são mantidos exclusivamente pelo editor online.
+            Após salvar o cadastro, use <strong>Criar/Editar Conteúdo Online</strong>
+            na tela de detalhes para elaborar o documento.
+          </p>
         </div>
       </div>
 
@@ -156,21 +131,11 @@
         <i class="bi bi-info-circle-fill me-2"></i>
         <strong>Após o cadastro</strong>, você poderá:
         <ul class="mb-0 mt-1 ps-3">
-          <li>Enviar/substituir arquivos separadamente</li>
+          <li>Criar e editar o conteúdo online</li>
+          <li>Pré-visualizar antes da aprovação</li>
           <li>Publicar como <strong>Vigente</strong></li>
           <li>Ver o histórico completo</li>
         </ul>
-      </div>
-
-      <!-- Naming convention -->
-      <div class="card border-0 shadow-sm bg-light">
-        <div class="card-body small text-muted">
-          <div class="fw-semibold mb-1">
-            <i class="bi bi-file-earmark-code me-1"></i>Padrão de nomenclatura
-          </div>
-          <code>CODIGO_RevXX_Titulo.pdf</code><br>
-          <code>CODIGO_RevXX_Titulo.docx</code>
-        </div>
       </div>
 
     </div>

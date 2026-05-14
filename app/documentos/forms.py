@@ -46,22 +46,6 @@ class NovoDocumentoForm(FlaskForm):
     requer_treinamento = BooleanField('Requer treinamento')
     observacao = TextAreaField('Observação', validators=[Optional()])
 
-    # ── File uploads (optional at creation) ───────────────────────────────────
-    arquivo_docx = FileField(
-        'Arquivo DOCX editável',
-        validators=[
-            Optional(),
-            FileAllowed(['docx'], 'Apenas arquivos .docx são permitidos.'),
-        ],
-    )
-    arquivo_pdf = FileField(
-        'PDF vigente (importação)',
-        validators=[
-            Optional(),
-            FileAllowed(['pdf'], 'Apenas arquivos .pdf são permitidos.'),
-        ],
-    )
-
     submit = SubmitField('Cadastrar documento')
 
 
@@ -86,28 +70,6 @@ class EditarDocumentoForm(FlaskForm):
     observacao = TextAreaField('Observação', validators=[Optional()])
 
     submit = SubmitField('Salvar alterações')
-
-
-class UploadDocxForm(FlaskForm):
-    arquivo_docx = FileField(
-        'Arquivo DOCX',
-        validators=[
-            DataRequired(message='Selecione um arquivo .docx.'),
-            FileAllowed(['docx'], 'Apenas arquivos .docx são permitidos.'),
-        ],
-    )
-    submit = SubmitField('Enviar DOCX')
-
-
-class UploadPdfForm(FlaskForm):
-    arquivo_pdf = FileField(
-        'Arquivo PDF',
-        validators=[
-            DataRequired(message='Selecione um arquivo .pdf.'),
-            FileAllowed(['pdf'], 'Apenas arquivos .pdf são permitidos.'),
-        ],
-    )
-    submit = SubmitField('Enviar PDF')
 
 
 class PublicarVigenteForm(FlaskForm):

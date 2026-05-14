@@ -21,6 +21,17 @@
 <form method="POST" action="{{ url_for('documentos.editar', id=doc.id) }}" novalidate>
   {{ form.hidden_tag() }}
 
+  {% if metadata_only %}
+  <div class="alert alert-info d-flex align-items-center gap-2 mb-4">
+    <i class="bi bi-info-circle-fill flex-shrink-0"></i>
+    <span>
+      <strong>Edição de metadados.</strong>
+      O documento está vigente. Você pode alterar o título e os campos de matriz de correlação
+      sem abrir uma revisão. Para alterar o conteúdo, abra uma nova revisão.
+    </span>
+  </div>
+  {% endif %}
+
   <div class="row g-4">
 
     <!-- ── Left column ─────────────────────────────────────────────────────── -->
@@ -97,8 +108,8 @@
     <div class="col-12 col-lg-4">
       <div class="alert alert-warning small">
         <i class="bi bi-exclamation-triangle-fill me-2"></i>
-        <strong>Atenção:</strong> para alterar arquivos (DOCX/PDF) use os botões de
-        upload na tela de detalhes.
+        <strong>Atenção:</strong> documentos SGQ usam apenas o editor online.
+        Para alterar o conteúdo, use o botão de edição online na tela de detalhes.
       </div>
       <div class="card border-0 shadow-sm">
         <div class="card-body small text-muted">

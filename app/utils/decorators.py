@@ -43,3 +43,17 @@ def somente_admin(f):
     """Shortcut: allow only Administrador."""
     from app.models.usuario import Perfil
     return perfil_requerido(Perfil.ADMINISTRADOR)(f)
+
+
+def bloquear_auditor(f):
+    """Block Auditor Externo / Técnico from accessing a view (returns 403)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            from flask import redirect, url_for
+            return redirect(url_for('auth.login'))
+        from app.models.usuario import Perfil
+        if current_user.perfil == Perfil.AUDITOR_EXTERNO:
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated_function

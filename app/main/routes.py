@@ -10,11 +10,13 @@ from app.models import (
 )
 from app.models.documento import StatusDocumento
 from app.extensions import db
+from app.utils.decorators import bloquear_auditor
 
 
 @main.route('/')
 @main.route('/dashboard')
 @login_required
+@bloquear_auditor
 def dashboard():
     # ── Counters ───────────────────────────────────────────────────────────────
     total_vigentes = Documento.query.filter_by(
@@ -163,6 +165,7 @@ def usuario_novo():
         senha = request.form.get('senha', '')
         confirmar = request.form.get('confirmar_senha', '')
         ativo = bool(request.form.get('ativo'))
+        revisor_padrao = bool(request.form.get('revisor_padrao'))
 
         erros = []
         if not nome:
@@ -191,7 +194,12 @@ def usuario_novo():
                 form_data=request.form,
             )
 
-        u = Usuario(nome=nome, email=email, perfil=perfil, ativo=ativo)
+        # Enforce at most one default reviewer
+        if revisor_padrao:
+            Usuario.query.filter_by(revisor_padrao=True).update({'revisor_padrao': False})
+
+        u = Usuario(nome=nome, email=email, perfil=perfil, ativo=ativo,
+                    revisor_padrao=revisor_padrao)
         u.set_senha(senha)
         db.session.add(u)
         db.session.commit()
@@ -222,6 +230,7 @@ def usuario_editar(id):
         senha = request.form.get('senha', '')
         confirmar = request.form.get('confirmar_senha', '')
         ativo = bool(request.form.get('ativo'))
+        revisor_padrao = bool(request.form.get('revisor_padrao'))
 
         erros = []
         if not nome:
@@ -251,10 +260,17 @@ def usuario_editar(id):
                 form_data=request.form,
             )
 
+        # Enforce at most one default reviewer
+        if revisor_padrao and not u.revisor_padrao:
+            Usuario.query.filter(Usuario.id != u.id, Usuario.revisor_padrao == True).update(
+                {'revisor_padrao': False}
+            )
+
         u.nome = nome
         u.email = email
         u.perfil = perfil
         u.ativo = ativo
+        u.revisor_padrao = revisor_padrao
         if senha:
             u.set_senha(senha)
         db.session.commit()

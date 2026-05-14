@@ -32,6 +32,7 @@ def init_database() -> None:
 
         # Add new columns to existing tables when needed
         _migrate_documentos_externos()
+        _migrate_usuarios()
 
         _seed_usuarios()
 
@@ -69,6 +70,33 @@ def _migrate_documentos_externos() -> None:
                     print(f'  [SKIP] documentos_externos.{col_name}: {exc}')
             else:
                 print(f'  [OK]   documentos_externos.{col_name} já existe')
+
+
+def _migrate_usuarios() -> None:
+    """Add new columns to usuarios if they don't already exist (SQLite-safe)."""
+    new_cols = [
+        ('revisor_padrao', 'BOOLEAN NOT NULL DEFAULT 0'),
+    ]
+    engine = db.engine
+    with engine.connect() as conn:
+        existing = {
+            row[1]
+            for row in conn.execute(db.text("PRAGMA table_info(usuarios)"))
+        }
+        for col_name, col_def in new_cols:
+            if col_name not in existing:
+                try:
+                    conn.execute(
+                        db.text(
+                            f'ALTER TABLE usuarios ADD COLUMN {col_name} {col_def}'
+                        )
+                    )
+                    conn.commit()
+                    print(f'  [ADD]  usuarios.{col_name}')
+                except Exception as exc:
+                    print(f'  [SKIP] usuarios.{col_name}: {exc}')
+            else:
+                print(f'  [OK]   usuarios.{col_name} já existe')
 
 
 def _seed_usuarios() -> None:

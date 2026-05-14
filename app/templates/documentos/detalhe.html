@@ -49,16 +49,10 @@
             <i class="bi bi-file-pdf me-1"></i>PDF Vigente
           </a>
         {% endif %}
-        {% if pode_ver_docx and doc.caminho_docx_editavel %}
-          <a href="{{ url_for('documentos.download_docx', id=doc.id) }}"
-             class="btn btn-sm btn-outline-primary" title="Baixar DOCX editável">
-            <i class="bi bi-file-earmark-word me-1"></i>DOCX
-          </a>
-        {% endif %}
-        {% if pode_editar and doc.status != 'Vigente' %}
+        {% if (pode_editar and doc.status != 'Vigente') or pode_editar_meta %}
           <a href="{{ url_for('documentos.editar', id=doc.id) }}"
-             class="btn btn-sm btn-outline-secondary" title="Editar metadados">
-            <i class="bi bi-pencil me-1"></i>Editar
+             class="btn btn-sm btn-outline-secondary" title="{% if doc.status == 'Vigente' %}Editar metadados{% else %}Editar{% endif %}">
+            <i class="bi bi-pencil me-1"></i>{% if doc.status == 'Vigente' %}Metadados{% else %}Editar{% endif %}
           </a>
         {% endif %}
       </div>
@@ -268,61 +262,6 @@
   <!-- ── Right: actions ────────────────────────────────────────────────────── -->
   <div class="col-12 col-xl-4">
 
-    <!-- Files card -->
-    <div class="card border-0 shadow-sm mb-4">
-      <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-paperclip me-2 text-primary"></i>Arquivos
-      </div>
-      <div class="card-body">
-
-        <!-- PDF Vigente -->
-        <div class="mb-3">
-          <div class="small fw-semibold text-muted mb-1">PDF Vigente (publicado)</div>
-          {% if doc.caminho_pdf_vigente %}
-            <div class="d-flex align-items-center gap-2">
-              <i class="bi bi-file-pdf text-danger fs-5"></i>
-              <span class="small text-truncate flex-grow-1" title="{{ doc.caminho_pdf_vigente }}">
-                {{ doc.caminho_pdf_vigente }}
-              </span>
-              <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
-                 class="btn btn-sm btn-outline-danger flex-shrink-0" target="_blank">
-                <i class="bi bi-eye"></i>
-              </a>
-            </div>
-          {% else %}
-            <div class="text-muted small">
-              <i class="bi bi-exclamation-circle text-warning me-1"></i>
-              Nenhum PDF publicado.
-            </div>
-          {% endif %}
-        </div>
-
-        <!-- DOCX Editável -->
-        {% if pode_ver_docx %}
-        <div class="pt-3 border-top">
-          <div class="small fw-semibold text-muted mb-1">DOCX Editável (publicado)</div>
-          {% if doc.caminho_docx_editavel %}
-            <div class="d-flex align-items-center gap-2">
-              <i class="bi bi-file-earmark-word text-primary fs-5"></i>
-              <span class="small text-truncate flex-grow-1" title="{{ doc.caminho_docx_editavel }}">
-                {{ doc.caminho_docx_editavel }}
-              </span>
-              <a href="{{ url_for('documentos.download_docx', id=doc.id) }}"
-                 class="btn btn-sm btn-outline-primary flex-shrink-0">
-                <i class="bi bi-download"></i>
-              </a>
-            </div>
-          {% else %}
-            <div class="text-muted small">
-              <i class="bi bi-info-circle me-1"></i>Sem DOCX publicado.
-            </div>
-          {% endif %}
-        </div>
-        {% endif %}
-
-      </div>
-    </div>
-
     {# ══════════════════════════════════════════════════════════════════════════
        PAINEL DE WORKFLOW — baseado no status atual
     ══════════════════════════════════════════════════════════════════════════ #}
@@ -394,33 +333,6 @@
     {% if revisao_ativa and revisao_ativa.status == 'Em revisão' %}
 
     {% if pode_editar %}
-    <div class="card border-0 shadow-sm mb-3 border-warning">
-      <div class="card-header bg-warning-subtle border-bottom fw-semibold small py-2">
-        <i class="bi bi-file-earmark-word me-1 text-warning"></i>
-        DOCX — Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
-      </div>
-      <div class="card-body py-2">
-        {% if revisao_ativa.arquivo_docx %}
-          <div class="small text-success mb-2 text-truncate" title="{{ revisao_ativa.arquivo_docx }}">
-            <i class="bi bi-check-circle me-1"></i>{{ revisao_ativa.arquivo_docx }}
-          </div>
-        {% else %}
-          <div class="small text-muted mb-2">
-            <i class="bi bi-exclamation-triangle text-warning me-1"></i>Nenhum DOCX enviado ainda.
-          </div>
-        {% endif %}
-        <form method="POST"
-              action="{{ url_for('documentos.upload_docx_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
-              enctype="multipart/form-data">
-          {{ upload_docx_form.hidden_tag() }}
-          {{ upload_docx_form.arquivo_docx(class="form-control form-control-sm mb-1", accept=".docx") }}
-          <button type="submit" class="btn btn-sm btn-outline-primary w-100">
-            <i class="bi bi-upload me-1"></i>Enviar / Substituir DOCX
-          </button>
-        </form>
-      </div>
-    </div>
-
     {# ── Online Editor for revision ── #}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-bottom fw-semibold small py-2">
@@ -441,34 +353,8 @@
       </div>
     </div>
 
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-bottom fw-semibold small py-2">
-        <i class="bi bi-upload me-1 text-danger"></i>Enviar PDF — Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
-      </div>
-      <div class="card-body py-2">
-        {% if revisao_ativa.arquivo_pdf %}
-          <div class="small text-success mb-2 text-truncate" title="{{ revisao_ativa.arquivo_pdf }}">
-            <i class="bi bi-check-circle me-1"></i>{{ revisao_ativa.arquivo_pdf }}
-          </div>
-        {% else %}
-          <div class="small text-muted mb-2">
-            <i class="bi bi-info-circle me-1"></i>Nenhum PDF enviado. Envie aqui para publicar sem gerar do DOCX.
-          </div>
-        {% endif %}
-        <form method="POST"
-              action="{{ url_for('documentos.upload_pdf_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
-              enctype="multipart/form-data">
-          {{ upload_pdf_form.hidden_tag() }}
-          {{ upload_pdf_form.arquivo_pdf(class="form-control form-control-sm mb-1", accept=".pdf") }}
-          <button type="submit" class="btn btn-sm btn-outline-danger w-100">
-            <i class="bi bi-upload me-1"></i>Enviar / Substituir PDF
-          </button>
-        </form>
-      </div>
-    </div>
-
     {# ── Enviar para aprovação manual (quando há conteúdo mas status ainda Em revisão) ── #}
-    {% if revisao_ativa.arquivo_docx or revisao_ativa.arquivo_pdf or revisao_ativa.content_html %}
+    {% if revisao_ativa.content_html %}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-bottom fw-semibold small py-2">
         <i class="bi bi-send me-1 text-primary"></i>Enviar para Aprovação
@@ -477,7 +363,7 @@
         <p class="small text-muted mb-2">Confirme que o conteúdo está pronto e encaminhe para aprovação.</p>
         <form method="POST"
               action="{{ url_for('documentos.enviar_para_aprovacao', id=doc.id, rev_id=revisao_ativa.id) }}">
-          {{ upload_docx_form.hidden_tag() }}
+          {{ abrir_revisao_form.hidden_tag() }}
           <button type="submit" class="btn btn-sm btn-primary w-100">
             <i class="bi bi-send me-1"></i>Enviar para Aprovação
           </button>
@@ -501,29 +387,6 @@
        target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-3">
       <i class="bi bi-eye me-1"></i>Visualizar Documento (Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }})
     </a>
-    {% endif %}
-    {% if pode_editar %}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-bottom fw-semibold small py-2">
-        <i class="bi bi-upload me-1 text-danger"></i>Substituir PDF da Revisão
-      </div>
-      <div class="card-body py-2">
-        {% if revisao_ativa.arquivo_pdf %}
-          <div class="small text-success mb-2 text-truncate" title="{{ revisao_ativa.arquivo_pdf }}">
-            <i class="bi bi-check-circle me-1"></i>{{ revisao_ativa.arquivo_pdf }}
-          </div>
-        {% endif %}
-        <form method="POST"
-              action="{{ url_for('documentos.upload_pdf_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
-              enctype="multipart/form-data">
-          {{ upload_pdf_form.hidden_tag() }}
-          {{ upload_pdf_form.arquivo_pdf(class="form-control form-control-sm mb-1", accept=".pdf") }}
-          <button type="submit" class="btn btn-sm btn-outline-danger w-100">
-            <i class="bi bi-upload me-1"></i>Enviar / Substituir PDF
-          </button>
-        </form>
-      </div>
-    </div>
     {% endif %}
     {% if pode_aprovar_doc %}
     <div class="card border-0 shadow-sm mb-3 border-success">
@@ -583,10 +446,6 @@
           <div class="alert alert-info small py-2 mb-2">
             <i class="bi bi-info-circle me-1"></i>PDF será gerado a partir do conteúdo online.
           </div>
-          {% elif revisao_ativa.arquivo_docx %}
-          <div class="small text-muted mb-2">
-            <i class="bi bi-file-earmark-word me-1"></i>{{ revisao_ativa.arquivo_docx }}
-          </div>
           {% endif %}
           <div class="alert alert-warning small mb-2 py-2">
             <i class="bi bi-exclamation-triangle me-1"></i>
@@ -603,33 +462,6 @@
     {% if doc.status == 'Rascunho' %}
 
     {% if pode_editar %}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-bottom fw-semibold small py-2">
-        <i class="bi bi-upload me-1 text-primary"></i>Enviar DOCX
-      </div>
-      <div class="card-body py-2">
-        <form method="POST" action="{{ url_for('documentos.upload_docx', id=doc.id) }}"
-              enctype="multipart/form-data">
-          {{ upload_docx_form.hidden_tag() }}
-          {{ upload_docx_form.arquivo_docx(class="form-control form-control-sm mb-2", accept=".docx") }}
-          {{ upload_docx_form.submit(class="btn btn-sm btn-primary w-100") }}
-        </form>
-      </div>
-    </div>
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-bottom fw-semibold small py-2">
-        <i class="bi bi-upload me-1 text-danger"></i>Enviar PDF
-      </div>
-      <div class="card-body py-2">
-        <form method="POST" action="{{ url_for('documentos.upload_pdf', id=doc.id) }}"
-              enctype="multipart/form-data">
-          {{ upload_pdf_form.hidden_tag() }}
-          {{ upload_pdf_form.arquivo_pdf(class="form-control form-control-sm mb-2", accept=".pdf") }}
-          {{ upload_pdf_form.submit(class="btn btn-sm btn-outline-danger w-100") }}
-        </form>
-      </div>
-    </div>
-
     {# ── Online Editor card ── #}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-bottom fw-semibold small py-2">
@@ -655,7 +487,7 @@
     </div>
     {% endif %}
 
-    {% if pode_publicar and (doc.caminho_pdf_vigente or doc.content_html) %}
+    {% if pode_publicar and doc.content_html %}
     <div class="card border-0 shadow-sm border-success mb-3">
       <div class="card-header bg-success-subtle border-bottom fw-semibold small text-success">
         <i class="bi bi-journals me-1"></i>Publicar como Vigente
@@ -679,10 +511,10 @@
         </form>
       </div>
     </div>
-    {% elif not doc.caminho_pdf_vigente and not doc.content_html %}
+    {% elif not doc.content_html %}
     <div class="alert alert-warning small">
       <i class="bi bi-exclamation-triangle me-2"></i>
-      Envie um <strong>PDF</strong> ou crie conteúdo pelo <strong>editor online</strong> para publicar como vigente.
+      Crie conteúdo pelo <strong>editor online</strong> para publicar como vigente.
     </div>
     {% endif %}
 

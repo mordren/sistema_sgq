@@ -3,11 +3,14 @@ from flask_login import login_user, logout_user, login_required, current_user
 from app.auth import auth
 from app.auth.forms import LoginForm
 from app.models import Usuario
+from app.models.usuario import Perfil
 
 
 @auth.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
+        if current_user.perfil == Perfil.AUDITOR_EXTERNO:
+            return redirect(url_for('documentos.lista_mestra'))
         return redirect(url_for('main.dashboard'))
 
     form = LoginForm()
@@ -28,6 +31,9 @@ def login():
                 next_page = None
 
             flash(f'Bem-vindo(a), {usuario.nome}!', 'success')
+            # Redirect auditors to their allowed landing page
+            if usuario.perfil == Perfil.AUDITOR_EXTERNO:
+                return redirect(url_for('documentos.lista_mestra'))
             return redirect(next_page or url_for('main.dashboard'))
 
         elif usuario and not usuario.ativo:

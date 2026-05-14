@@ -18,7 +18,7 @@ from werkzeug.utils import secure_filename
 
 from app.documentos.forms import (
     NovoDocumentoForm, EditarDocumentoForm,
-    UploadDocxForm, UploadPdfForm, PublicarVigenteForm,
+    PublicarVigenteForm,
     AbrirRevisaoForm, EnviarAprovacaoForm,
     AprovarRevisaoForm, ReprovarRevisaoForm, PublicarRevisaoForm,
     EditorConteudoForm, ListaMestraConfigForm,
@@ -34,6 +34,7 @@ from app.models.lista_mestra_config import ListaMestraConfig
 from app.models.documento import TipoDocumento, StatusDocumento
 from app.models.historico import AcaoEvento
 from app.models.usuario import Perfil
+from app.utils.decorators import bloquear_auditor
 from app.utils.file_utils import (
     salvar_upload, caminho_seguro, arquivo_existe,
     nome_pdf_vigente, nome_docx_editavel,
@@ -152,6 +153,7 @@ def _resumo_requisitos_matriz(matriz_json: str | None, fallback: str | None = No
 
 @documentos.route('/', methods=['GET'])
 @login_required
+@bloquear_auditor
 def lista():
     tipo_f = request.args.get('tipo', '').strip()
     status_f = request.args.get('status', '').strip()
@@ -797,6 +799,7 @@ def configurar_lista_mestra():
 
 @documentos.route('/novo', methods=['GET', 'POST'])
 @login_required
+@bloquear_auditor
 def novo():
     if not current_user.pode_editar_documentos():
         abort(403)
@@ -820,6 +823,7 @@ def novo():
                 formularios_choices=formularios_choices,
             )
 
+        _revisor_padrao = Usuario.revisor_padrao_ativo()
         doc = Documento(
             codigo=codigo,
             titulo=form.titulo.data.strip(),
@@ -827,6 +831,7 @@ def novo():
             revisao_atual=form.revisao_inicial.data,
             status=StatusDocumento.RASCUNHO,
             elaborado_por_id=current_user.id,  # Always the authenticated user
+            revisado_por_id=_revisor_padrao.id if _revisor_padrao else None,
             requisito_relacionado=_resumo_requisitos_matriz(
                 matriz_json,
                 form.requisito_relacionado.data,
@@ -838,37 +843,7 @@ def novo():
             observacao=form.observacao.data.strip() or None,
         )
         db.session.add(doc)
-        db.session.flush()  # get doc.id before saving files
-
-        # Handle DOCX upload
-        if form.arquivo_docx.data and form.arquivo_docx.data.filename:
-            nome_dx = nome_docx_editavel(doc.codigo, doc.revisao_atual, doc.titulo)
-            salvar_upload(
-                form.arquivo_docx.data,
-                current_app.config['EDITAVEIS_DOCX_DIR'],
-                nome_dx,
-            )
-            doc.caminho_docx_editavel = nome_dx
-            registrar_evento(
-                doc.id, current_user.id,
-                AcaoEvento.ARQUIVO_ENVIADO,
-                f'DOCX enviado: {nome_dx}',
-            )
-
-        # Handle PDF upload
-        if form.arquivo_pdf.data and form.arquivo_pdf.data.filename:
-            nome_px = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
-            salvar_upload(
-                form.arquivo_pdf.data,
-                current_app.config['VIGENTES_PDF_DIR'],
-                nome_px,
-            )
-            doc.caminho_pdf_vigente = nome_px
-            registrar_evento(
-                doc.id, current_user.id,
-                AcaoEvento.ARQUIVO_ENVIADO,
-                f'PDF enviado: {nome_px}',
-            )
+        db.session.flush()  # get doc.id for history registration
 
         registrar_evento(
             doc.id, current_user.id,
@@ -892,6 +867,7 @@ def novo():
 
 @documentos.route('/<int:id>', methods=['GET'])
 @login_required
+@bloquear_auditor
 def detalhe(id):
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
 
@@ -923,8 +899,6 @@ def detalhe(id):
     )
 
     # ── Forms ──────────────────────────────────────────────────────────────────
-    upload_docx_form = UploadDocxForm()
-    upload_pdf_form = UploadPdfForm()
     publicar_form = PublicarVigenteForm()
     abrir_revisao_form = AbrirRevisaoForm()
     aprovar_form = AprovarRevisaoForm()
@@ -933,6 +907,7 @@ def detalhe(id):
 
     # ── Permissions ────────────────────────────────────────────────────────────
     pode_editar = current_user.pode_editar_documentos()
+    pode_editar_meta = current_user.pode_editar_metadados()
     pode_publicar = (
         current_user.pode_aprovar()
         and doc.status in [StatusDocumento.RASCUNHO, StatusDocumento.APROVADO]
@@ -953,8 +928,6 @@ def detalhe(id):
         historico=historico,
         revisoes=revisoes,
         revisao_ativa=revisao_ativa,
-        upload_docx_form=upload_docx_form,
-        upload_pdf_form=upload_pdf_form,
         publicar_form=publicar_form,
         abrir_revisao_form=abrir_revisao_form,
         enviar_aprovacao_form=None,
@@ -962,6 +935,7 @@ def detalhe(id):
         reprovar_form=reprovar_form,
         publicar_revisao_form=publicar_revisao_form,
         pode_editar=pode_editar,
+        pode_editar_meta=pode_editar_meta,
         pode_publicar=pode_publicar,
         pode_ver_docx=pode_ver_docx,
         pode_abrir_revisao=current_user.pode_abrir_revisao(),
@@ -976,13 +950,22 @@ def detalhe(id):
 
 @documentos.route('/<int:id>/editar', methods=['GET', 'POST'])
 @login_required
+@bloquear_auditor
 def editar(id):
-    if not current_user.pode_editar_documentos():
+    # Metadata-only edit (title + matrix) allowed for Admin/Qualidade on any status.
+    # Full content/workflow edits still require pode_editar_documentos().
+    pode_meta = current_user.pode_editar_metadados()
+    pode_full = current_user.pode_editar_documentos()
+
+    if not pode_meta and not pode_full:
         abort(403)
 
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
 
-    if doc.status == StatusDocumento.VIGENTE:
+    # Metadata-only mode: document is VIGENTE (or not editable by full editors)
+    metadata_only = doc.status == StatusDocumento.VIGENTE
+
+    if metadata_only and not pode_meta:
         flash(
             'Para alterar um documento vigente, abra uma nova revisão primeiro.',
             'warning',
@@ -1038,6 +1021,7 @@ def editar(id):
         form=form,
         doc=doc,
         formularios_choices=formularios_choices,
+        metadata_only=metadata_only,
     )
 
 
@@ -1046,40 +1030,10 @@ def editar(id):
 @documentos.route('/<int:id>/upload-docx', methods=['POST'])
 @login_required
 def upload_docx(id):
-    if not current_user.pode_editar_documentos():
-        abort(403)
-
-    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
-
-    if doc.status == StatusDocumento.VIGENTE:
-        flash(
-            'Não é possível substituir o DOCX de um documento vigente. '
-            'Abra uma nova revisão.',
-            'danger',
-        )
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    form = UploadDocxForm()
-    if form.validate_on_submit():
-        nome = nome_docx_editavel(doc.codigo, doc.revisao_atual, doc.titulo)
-        salvar_upload(
-            form.arquivo_docx.data,
-            current_app.config['EDITAVEIS_DOCX_DIR'],
-            nome,
-        )
-        doc.caminho_docx_editavel = nome
-        doc.atualizado_em = agora_brasilia()
-
-        registrar_evento(
-            doc.id, current_user.id,
-            AcaoEvento.ARQUIVO_ENVIADO,
-            f'DOCX enviado/atualizado: {nome}',
-        )
-        db.session.commit()
-        flash('Arquivo DOCX enviado com sucesso!', 'success')
-    else:
-        flash('Erro no envio: selecione um arquivo .docx válido.', 'danger')
-
+    flash(
+        'Envio de DOCX foi desativado para documentos SGQ. Use apenas o editor online.',
+        'warning',
+    )
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1088,40 +1042,10 @@ def upload_docx(id):
 @documentos.route('/<int:id>/upload-pdf', methods=['POST'])
 @login_required
 def upload_pdf(id):
-    if not current_user.pode_editar_documentos():
-        abort(403)
-
-    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
-
-    if doc.status == StatusDocumento.VIGENTE:
-        flash(
-            'Não é possível substituir o PDF de um documento vigente. '
-            'Abra uma nova revisão.',
-            'danger',
-        )
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    form = UploadPdfForm()
-    if form.validate_on_submit():
-        nome = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
-        salvar_upload(
-            form.arquivo_pdf.data,
-            current_app.config['VIGENTES_PDF_DIR'],
-            nome,
-        )
-        doc.caminho_pdf_vigente = nome
-        doc.atualizado_em = agora_brasilia()
-
-        registrar_evento(
-            doc.id, current_user.id,
-            AcaoEvento.ARQUIVO_ENVIADO,
-            f'PDF enviado/atualizado: {nome}',
-        )
-        db.session.commit()
-        flash('Arquivo PDF enviado com sucesso!', 'success')
-    else:
-        flash('Erro no envio: selecione um arquivo .pdf válido.', 'danger')
-
+    flash(
+        'Envio de PDF foi desativado para documentos SGQ. Use apenas o editor online.',
+        'warning',
+    )
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1143,13 +1067,10 @@ def publicar_vigente(id):
         )
         return redirect(url_for('documentos.detalhe', id=id))
 
-    tem_conteudo = doc.caminho_pdf_vigente or (
-        doc.content_mode == 'online_editor' and doc.content_html
-    )
+    tem_conteudo = doc.content_mode == 'online_editor' and bool(doc.content_html)
     if not tem_conteudo:
         flash(
-            'É necessário enviar um PDF ou criar conteúdo pelo editor online '
-            'antes de publicar como Vigente.',
+            'É necessário criar conteúdo pelo editor online antes de publicar como Vigente.',
             'danger',
         )
         return redirect(url_for('documentos.detalhe', id=id))
@@ -1373,24 +1294,14 @@ def abrir_revisao(id):
         flash('Informe o motivo da revisão.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    nova_revisao_num = doc.revisao_atual + 1
-    nome_docx = nome_docx_editavel(doc.codigo, nova_revisao_num, doc.titulo)
-    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
-
-    # Copy current DOCX to em_revisao/ (or create placeholder)
-    origem_docx = None
-    if doc.caminho_docx_editavel:
-        origem_docx = caminho_seguro(
-            current_app.config['EDITAVEIS_DOCX_DIR'],
-            doc.caminho_docx_editavel,
+    if not (doc.content_mode == 'online_editor' and doc.content_html):
+        flash(
+            'Somente documentos com conteúdo do editor online podem abrir revisão.',
+            'danger',
         )
+        return redirect(url_for('documentos.detalhe', id=id))
 
-    destino_docx = os.path.join(em_revisao_dir, nome_docx)
-    if origem_docx and arquivo_existe(origem_docx):
-        copiar_arquivo(origem_docx, destino_docx)
-    else:
-        # No existing DOCX — user must upload one
-        nome_docx = None
+    nova_revisao_num = doc.revisao_atual + 1
 
     revisao = RevisaoDocumento(
         documento_id=doc.id,
@@ -1399,10 +1310,16 @@ def abrir_revisao(id):
         motivo_alteracao=form.motivo.data.strip(),
         elaborado_por_id=current_user.id,
         data_elaboracao=agora_brasilia(),
-        arquivo_docx=nome_docx,
+        arquivo_docx=None,
         content_html=doc.content_html if doc.content_mode == 'online_editor' else None,
         content_mode=doc.content_mode if doc.content_mode == 'online_editor' else None,
     )
+
+    # Auto-assign default reviewer if one is configured
+    revisor = Usuario.revisor_padrao_ativo()
+    if revisor:
+        revisao.revisado_por_id = revisor.id
+
     db.session.add(revisao)
 
     doc.status = StatusDocumento.EM_REVISAO
@@ -1429,42 +1346,10 @@ def abrir_revisao(id):
 @documentos.route('/<int:id>/revisoes/<int:rev_id>/upload-docx', methods=['POST'])
 @login_required
 def upload_docx_revisao(id, rev_id):
-    """Upload a DOCX file to an in-progress revision."""
-    if not current_user.pode_editar_documentos():
-        abort(403)
-
-    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
-    revisao = RevisaoDocumento.query.filter_by(
-        id=rev_id, documento_id=id
-    ).first_or_404()
-
-    _editaveis = [StatusDocumento.EM_REVISAO, StatusDocumento.AGUARDANDO_APROVACAO, StatusDocumento.RASCUNHO]
-    if revisao.status not in _editaveis:
-        flash('Não é possível substituir o DOCX desta revisão no estado atual.', 'danger')
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    form = UploadDocxForm()
-    if form.validate_on_submit():
-        nome = nome_docx_editavel(doc.codigo, revisao.numero_revisao, doc.titulo)
-        salvar_upload(
-            form.arquivo_docx.data,
-            current_app.config['EM_REVISAO_DIR'],
-            nome,
-        )
-        revisao.arquivo_docx = nome
-        revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.atualizado_em = agora_brasilia()
-        registrar_evento(
-            doc.id, current_user.id,
-            AcaoEvento.ARQUIVO_ENVIADO,
-            f'DOCX Rev{revisao.numero_revisao:02d} enviado por {current_user.nome}. Aguardando aprovação.',
-        )
-        db.session.commit()
-        flash('DOCX enviado. Revisão encaminhada para aprovação.', 'success')
-    else:
-        flash('Erro no envio: selecione um arquivo .docx válido.', 'danger')
-
+    flash(
+        'Envio de DOCX foi desativado para revisões SGQ. Use apenas o editor online.',
+        'warning',
+    )
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1473,42 +1358,10 @@ def upload_docx_revisao(id, rev_id):
 @documentos.route('/<int:id>/revisoes/<int:rev_id>/upload-pdf', methods=['POST'])
 @login_required
 def upload_pdf_revisao(id, rev_id):
-    """Upload a PDF file directly to an in-progress revision."""
-    if not current_user.pode_editar_documentos():
-        abort(403)
-
-    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
-    revisao = RevisaoDocumento.query.filter_by(
-        id=rev_id, documento_id=id
-    ).first_or_404()
-
-    _editaveis = [StatusDocumento.EM_REVISAO, StatusDocumento.AGUARDANDO_APROVACAO, StatusDocumento.RASCUNHO]
-    if revisao.status not in _editaveis:
-        flash('Não é possível enviar PDF para esta revisão no estado atual.', 'danger')
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    form = UploadPdfForm()
-    if form.validate_on_submit():
-        nome = nome_pdf_vigente(doc.codigo, revisao.numero_revisao, doc.titulo)
-        salvar_upload(
-            form.arquivo_pdf.data,
-            current_app.config['EM_REVISAO_DIR'],
-            nome,
-        )
-        revisao.arquivo_pdf = nome
-        revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.status = StatusDocumento.AGUARDANDO_APROVACAO
-        doc.atualizado_em = agora_brasilia()
-        registrar_evento(
-            doc.id, current_user.id,
-            AcaoEvento.ARQUIVO_ENVIADO,
-            f'PDF Rev{revisao.numero_revisao:02d} enviado por {current_user.nome}. Aguardando aprovação.',
-        )
-        db.session.commit()
-        flash('PDF enviado. Revisão encaminhada para aprovação.', 'success')
-    else:
-        flash('Erro no envio: selecione um arquivo .pdf válido.', 'danger')
-
+    flash(
+        'Envio de PDF foi desativado para revisões SGQ. Use apenas o editor online.',
+        'warning',
+    )
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1533,6 +1386,13 @@ def enviar_para_aprovacao(id, rev_id):
     ]
     if revisao.status not in estados_validos:
         flash('Esta revisão não pode ser enviada para aprovação no estado atual.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    if not (revisao.content_mode == 'online_editor' and revisao.content_html):
+        flash(
+            'A revisão precisa ter conteúdo do editor online antes do envio para aprovação.',
+            'danger',
+        )
         return redirect(url_for('documentos.detalhe', id=id))
 
     revisao.status = StatusDocumento.AGUARDANDO_APROVACAO
@@ -1575,9 +1435,7 @@ def aprovar_revisao(id, rev_id):
 
     agora = agora_brasilia()
     vigentes_dir = current_app.config['VIGENTES_PDF_DIR']
-    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
     obsoletos_dir = current_app.config['OBSOLETOS_DIR']
-    editaveis_dir = current_app.config['EDITAVEIS_DOCX_DIR']
 
     # ── Set approval metadata ──────────────────────────────────────────────────
     # Approval is done by current_user; keep elaborado and revisado as-is
@@ -1605,31 +1463,9 @@ def aprovar_revisao(id, rev_id):
             )
         else:
             flash('Aviso: não foi possível gerar o PDF automaticamente.', 'warning')
-    elif revisao.arquivo_pdf:
-        src_pdf = os.path.join(em_revisao_dir, revisao.arquivo_pdf)
-        if arquivo_existe(src_pdf):
-            copiar_arquivo(src_pdf, os.path.join(vigentes_dir, nome_pdf_novo))
-            pdf_gerado = True
-    elif revisao.arquivo_docx:
-        from app.utils.pdf_utils import converter_docx_para_pdf
-        caminho_docx_src = os.path.join(em_revisao_dir, revisao.arquivo_docx)
-        if arquivo_existe(caminho_docx_src):
-            pdf_temp = converter_docx_para_pdf(caminho_docx_src, vigentes_dir)
-            if pdf_temp:
-                nome_gerado = os.path.basename(pdf_temp)
-                if nome_gerado != nome_pdf_novo:
-                    mover_arquivo(pdf_temp, os.path.join(vigentes_dir, nome_pdf_novo))
-                pdf_gerado = True
-                registrar_evento(
-                    doc.id, current_user.id,
-                    AcaoEvento.PDF_GERADO,
-                    f'PDF gerado automaticamente: {nome_pdf_novo}',
-                )
-            else:
-                flash(
-                    'LibreOffice não encontrado. Publicação continuará sem PDF automático.',
-                    'warning',
-                )
+    else:
+        flash('Conteúdo online ausente. Não foi possível gerar o PDF desta revisão.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
 
     # ── Move previous PDF to obsoletos/ ───────────────────────────────────────
     if doc.caminho_pdf_vigente:
@@ -1643,19 +1479,11 @@ def aprovar_revisao(id, rev_id):
                 f'PDF Rev{doc.revisao_atual:02d} movido para obsoletos: {nome_obs}',
             )
 
-    # ── Move DOCX to editaveis_docx/ ──────────────────────────────────────────
-    nome_docx_novo = nome_docx_editavel(doc.codigo, revisao.numero_revisao, doc.titulo)
-    if revisao.arquivo_docx:
-        src_docx = os.path.join(em_revisao_dir, revisao.arquivo_docx)
-        if arquivo_existe(src_docx):
-            copiar_arquivo(src_docx, os.path.join(editaveis_dir, nome_docx_novo))
-
     # ── Update Documento → Vigente ─────────────────────────────────────────────
     revisao_anterior_num = doc.revisao_atual
     doc.revisao_atual = revisao.numero_revisao
     doc.status = StatusDocumento.VIGENTE
     doc.caminho_pdf_vigente = nome_pdf_novo if pdf_gerado else doc.caminho_pdf_vigente
-    doc.caminho_docx_editavel = nome_docx_novo
     # Auto-set approval user
     doc.aprovado_por_id = current_user.id
     # Keep elaborado and revisado from revision (or maintain as-is if not already set)
@@ -1779,9 +1607,7 @@ def publicar_revisao(id, rev_id):
 
     agora = agora_brasilia()
     vigentes_dir = current_app.config['VIGENTES_PDF_DIR']
-    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
     obsoletos_dir = current_app.config['OBSOLETOS_DIR']
-    editaveis_dir = current_app.config['EDITAVEIS_DOCX_DIR']
 
     # ── 1. Generate PDF ────────────────────────────────────────────────────────
     pdf_gerado = False
@@ -1808,46 +1634,12 @@ def publicar_revisao(id, rev_id):
                 'Aviso: não foi possível gerar o PDF automaticamente a partir do conteúdo online.',
                 'warning',
             )
-    elif revisao.arquivo_pdf:
-        # Use the PDF uploaded directly for this revision
-        src_pdf = os.path.join(em_revisao_dir, revisao.arquivo_pdf)
-        if arquivo_existe(src_pdf):
-            destino_pdf = os.path.join(vigentes_dir, nome_pdf_novo)
-            copiar_arquivo(src_pdf, destino_pdf)
-            pdf_gerado = True
-            registrar_evento(
-                doc.id, current_user.id,
-                AcaoEvento.ARQUIVO_ENVIADO,
-                f'PDF Rev{revisao.numero_revisao:02d} publicado a partir de upload direto: {nome_pdf_novo}',
-            )
-        else:
-            flash('Arquivo PDF da revisão não encontrado. PDF não publicado.', 'warning')
-    elif form.gerar_pdf.data and revisao.arquivo_docx:
-        from app.utils.pdf_utils import converter_docx_para_pdf
-        caminho_docx_src = os.path.join(em_revisao_dir, revisao.arquivo_docx)
-        if arquivo_existe(caminho_docx_src):
-            pdf_temp = converter_docx_para_pdf(caminho_docx_src, vigentes_dir)
-            if pdf_temp:
-                # Rename to canonical name
-                nome_gerado = os.path.basename(pdf_temp)
-                if nome_gerado != nome_pdf_novo:
-                    destino_pdf = os.path.join(vigentes_dir, nome_pdf_novo)
-                    mover_arquivo(pdf_temp, destino_pdf)
-                pdf_gerado = True
-                registrar_evento(
-                    doc.id, current_user.id,
-                    AcaoEvento.PDF_GERADO,
-                    f'PDF gerado automaticamente: {nome_pdf_novo}',
-                )
-            else:
-                flash(
-                    'LibreOffice não encontrado ou falhou na conversão. '
-                    'Instale o LibreOffice para gerar o PDF automaticamente. '
-                    'Continuando publicação sem PDF automático.',
-                    'warning',
-                )
-        else:
-            flash('Arquivo DOCX da revisão não encontrado. PDF não gerado.', 'warning')
+    else:
+        flash(
+            'A revisão precisa ter conteúdo online para gerar o PDF e publicar.',
+            'danger',
+        )
+        return redirect(url_for('documentos.detalhe', id=id))
 
     # ── 2. Move previous PDF to obsoletos/ ────────────────────────────────────
     if doc.caminho_pdf_vigente:
@@ -1862,20 +1654,11 @@ def publicar_revisao(id, rev_id):
                 f'PDF Rev{doc.revisao_atual:02d} movido para obsoletos: {nome_obs}',
             )
 
-    # ── 3. Move DOCX to editaveis_docx/ ───────────────────────────────────────
-    nome_docx_novo = nome_docx_editavel(doc.codigo, revisao.numero_revisao, doc.titulo)
-    if revisao.arquivo_docx:
-        src_docx = os.path.join(em_revisao_dir, revisao.arquivo_docx)
-        if arquivo_existe(src_docx):
-            dest_docx = os.path.join(editaveis_dir, nome_docx_novo)
-            copiar_arquivo(src_docx, dest_docx)
-
-    # ── 4. Update Documento ───────────────────────────────────────────────────
+    # ── 3. Update Documento ───────────────────────────────────────────────────
     revisao_anterior_num = doc.revisao_atual
     doc.revisao_atual = revisao.numero_revisao
     doc.status = StatusDocumento.VIGENTE
     doc.caminho_pdf_vigente = nome_pdf_novo if pdf_gerado else doc.caminho_pdf_vigente
-    doc.caminho_docx_editavel = nome_docx_novo
     doc.elaborado_por_id = revisao.elaborado_por_id
     doc.revisado_por_id = revisao.revisado_por_id
     doc.aprovado_por_id = revisao.aprovado_por_id
@@ -1887,7 +1670,7 @@ def publicar_revisao(id, rev_id):
         doc.content_html = revisao.content_html
         doc.content_mode = revisao.content_mode
 
-    # ── 5. Update revision ────────────────────────────────────────────────────
+    # ── 4. Update revision ────────────────────────────────────────────────────
     revisao.status = StatusDocumento.VIGENTE
     revisao.data_publicacao = agora
 
@@ -2113,6 +1896,7 @@ def editor_revisao(id, rev_id):
 
 @documentos.route('/<int:id>/preview-online', methods=['GET'])
 @login_required
+@bloquear_auditor
 def preview_documento(id):
     """Preview online content of a Rascunho document."""
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
@@ -2159,6 +1943,7 @@ def preview_documento(id):
 
 @documentos.route('/<int:id>/revisoes/<int:rev_id>/preview-online', methods=['GET'])
 @login_required
+@bloquear_auditor
 def preview_revisao(id, rev_id):
     """Preview online content of an active revision."""
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()

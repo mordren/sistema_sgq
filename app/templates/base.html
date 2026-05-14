@@ -35,7 +35,8 @@
   <nav id="sidebar" class="d-flex flex-column flex-shrink-0">
 
     <!-- Brand -->
-    <a href="{{ url_for('main.dashboard') }}" class="sidebar-brand text-decoration-none">
+    <a href="{{ url_for('documentos.lista_mestra') if current_user.eh_auditor_externo() else url_for('main.dashboard') }}"
+       class="sidebar-brand text-decoration-none">
       <div class="d-flex align-items-center gap-2">
         <i class="bi bi-shield-check fs-4 text-sgq-accent"></i>
         <div>
@@ -49,6 +50,7 @@
     <ul class="nav nav-pills flex-column mb-auto px-2 mt-2">
 
       <!-- Dashboard -->
+      {% if not current_user.eh_auditor_externo() %}
       <li class="nav-item">
         <a href="{{ url_for('main.dashboard') }}"
            class="nav-link sidebar-link {% if request.endpoint == 'main.dashboard' %}active{% endif %}">
@@ -56,12 +58,14 @@
           Dashboard
         </a>
       </li>
+      {% endif %}
 
       <!-- Documentos group -->
       <li class="nav-item mt-2">
         <span class="nav-group-label">Documentos</span>
       </li>
 
+      {% if not current_user.eh_auditor_externo() %}
       <li class="nav-item">
         <a href="{{ url_for('documentos.lista') }}"
            class="nav-link sidebar-link {% if request.endpoint == 'documentos.lista' and not request.args.get('status') %}active{% endif %}">
@@ -69,6 +73,7 @@
           Lista de Documentos
         </a>
       </li>
+      {% endif %}
 
       {% if current_user.pode_editar_documentos() %}
       <li class="nav-item">
@@ -102,27 +107,6 @@
            class="nav-link sidebar-link {% if request.endpoint in ['documentos.documentos_externos', 'documentos.download_externo', 'documentos.editar_externo', 'documentos.visualizar_externo'] %}active{% endif %}">
           <i class="bi bi-globe2"></i>
           Documentos Externos
-        </a>
-      </li>
-
-      <!-- Workflow group -->
-      <li class="nav-item mt-2">
-        <span class="nav-group-label">Workflow</span>
-      </li>
-
-      <li class="nav-item">
-        <a href="{{ url_for('main.em_desenvolvimento') }}"
-           class="nav-link sidebar-link">
-          <i class="bi bi-arrow-repeat"></i>
-          Em Revisão
-        </a>
-      </li>
-
-      <li class="nav-item">
-        <a href="{{ url_for('main.em_desenvolvimento') }}"
-           class="nav-link sidebar-link">
-          <i class="bi bi-patch-check"></i>
-          Aguardando Aprovação
         </a>
       </li>
 
