@@ -531,23 +531,14 @@
         <i class="bi bi-patch-check me-1"></i>Aprovar e Publicar Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }}
       </div>
       <div class="card-body">
-        <p class="small text-muted mb-3">Após aprovar, o documento será publicado automaticamente como Vigente.</p>
+        <p class="small text-muted mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          Você será registrado como aprovador. O documento será publicado automaticamente como Vigente.
+        </p>
         <form method="POST"
               action="{{ url_for('documentos.aprovar_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
               novalidate>
           {{ aprovar_form.hidden_tag() }}
-          <div class="mb-2">
-            {{ aprovar_form.elaborado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ aprovar_form.elaborado_por_id(class="form-select form-select-sm") }}
-          </div>
-          <div class="mb-2">
-            {{ aprovar_form.revisado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ aprovar_form.revisado_por_id(class="form-select form-select-sm") }}
-          </div>
-          <div class="mb-3">
-            {{ aprovar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ aprovar_form.aprovado_por_id(class="form-select form-select-sm") }}
-          </div>
           <button type="submit" class="btn btn-success w-100"
                   onclick="return confirm('Confirma a aprovação e publicação imediata desta revisão?')">
             <i class="bi bi-check-circle me-1"></i>Aprovar e Publicar
@@ -670,27 +661,22 @@
         <i class="bi bi-journals me-1"></i>Publicar como Vigente
       </div>
       <div class="card-body">
-        {% if tem_aprovadores %}
-          <form method="POST" action="{{ url_for('documentos.publicar_vigente', id=doc.id) }}" novalidate>
-            {{ publicar_form.hidden_tag() }}
-            <input type="hidden" name="motivo" value="Publicação como Vigente">
-            <div class="mb-3">
-              {{ publicar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
-              {{ publicar_form.aprovado_por_id(class="form-select form-select-sm") }}
-            </div>
-            <div class="alert alert-warning small mb-2 py-2">
-              <i class="bi bi-exclamation-triangle me-1"></i>
-              Após publicação o status será <strong>Vigente</strong> e não poderá ser
-              revertido sem abrir uma nova revisão.
-            </div>
-            {{ publicar_form.submit(class="btn btn-success w-100") }}
-          </form>
-        {% else %}
-          <div class="alert alert-warning small mb-0">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            Nenhum usuário aprovador cadastrado.
+        <form method="POST" action="{{ url_for('documentos.publicar_vigente', id=doc.id) }}" novalidate>
+          {{ publicar_form.hidden_tag() }}
+          <div class="mb-3">
+            {{ publicar_form.motivo.label(class="form-label fw-semibold small") }}
+            {{ publicar_form.motivo(class="form-control form-control-sm", rows="2",
+               placeholder="Descreva o motivo da publicação...") }}
+            {% for e in publicar_form.motivo.errors %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
           </div>
-        {% endif %}
+          <div class="alert alert-info small mb-2 py-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Você será registrado como aprovador. Após publicação o status será <strong>Vigente</strong>.
+          </div>
+          {{ publicar_form.submit(class="btn btn-success w-100") }}
+        </form>
       </div>
     </div>
     {% elif not doc.caminho_pdf_vigente and not doc.content_html %}

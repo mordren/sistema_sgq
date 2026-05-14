@@ -163,7 +163,7 @@
     {% endif %}
 
     {# ── Publicar como Vigente (Rascunho sem revisão ativa) ── #}
-    {% if pode_publicar and tem_aprovadores %}
+    {% if pode_publicar %}
     <button class="btn btn-sm btn-success" type="button"
             data-bs-toggle="collapse" data-bs-target="#previewPublicarPanel">
       <i class="bi bi-journals me-1"></i>Publicar como Vigente
@@ -192,17 +192,10 @@
             novalidate>
         {{ aprovar_form.hidden_tag() }}
         <div class="row g-2">
-          <div class="col-md-4">
-            {{ aprovar_form.elaborado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ aprovar_form.elaborado_por_id(class="form-select form-select-sm") }}
-          </div>
-          <div class="col-md-4">
-            {{ aprovar_form.revisado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ aprovar_form.revisado_por_id(class="form-select form-select-sm") }}
-          </div>
-          <div class="col-md-4">
-            {{ aprovar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ aprovar_form.aprovado_por_id(class="form-select form-select-sm") }}
+          <div class="col-12">
+            <p class="small text-muted mb-2">
+              A aprovação registra automaticamente o usuário autenticado como aprovador e publica a revisão em seguida.
+            </p>
           </div>
         </div>
         <div class="mt-2">
@@ -236,7 +229,7 @@
 {% endif %}
 
 {# ── Painel recolhível: Publicar como Vigente ── #}
-{% if pode_publicar and tem_aprovadores %}
+{% if pode_publicar %}
 <div class="collapse no-print mb-3" id="previewPublicarPanel">
   <div class="card border-success shadow-sm">
     <div class="card-header bg-success-subtle fw-semibold small">
@@ -249,9 +242,10 @@
         {{ publicar_form.hidden_tag() }}
         <input type="hidden" name="motivo" value="Publicação como Vigente">
         <div class="row g-2 align-items-end">
-          <div class="col-md-6">
-            {{ publicar_form.aprovado_por_id.label(class="form-label fw-semibold small mb-1") }}
-            {{ publicar_form.aprovado_por_id(class="form-select form-select-sm") }}
+          <div class="col-12">
+            <p class="small text-muted mb-2">
+              A publicação registra automaticamente o usuário autenticado como aprovador do documento.
+            </p>
           </div>
           <div class="col-md-6">
             {{ publicar_form.submit(class="btn btn-success btn-sm w-100") }}

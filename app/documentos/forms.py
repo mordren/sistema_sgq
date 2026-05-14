@@ -35,17 +35,6 @@ class NovoDocumentoForm(FlaskForm):
         validators=[NumberRange(min=0, max=99, message='Revisão entre 0 e 99.')],
     )
 
-    # ── Responsible users ──────────────────────────────────────────────────────
-    elaborado_por_id = SelectField(
-        'Elaborado por', coerce=int, choices=[], validators=[Optional()]
-    )
-    revisado_por_id = SelectField(
-        'Revisado por', coerce=int, choices=[], validators=[Optional()]
-    )
-    aprovado_por_id = SelectField(
-        'Aprovado por', coerce=int, choices=[], validators=[Optional()]
-    )
-
     # ── Metadata ───────────────────────────────────────────────────────────────
     requisito_relacionado = TextAreaField(
         'Requisitos relacionados',
@@ -86,15 +75,6 @@ class EditarDocumentoForm(FlaskForm):
     )
     tipo_documento = SelectField(
         'Tipo de documento', choices=[], validators=[DataRequired()]
-    )
-    elaborado_por_id = SelectField(
-        'Elaborado por', coerce=int, choices=[], validators=[Optional()]
-    )
-    revisado_por_id = SelectField(
-        'Revisado por', coerce=int, choices=[], validators=[Optional()]
-    )
-    aprovado_por_id = SelectField(
-        'Aprovado por', coerce=int, choices=[], validators=[Optional()]
     )
     requisito_relacionado = TextAreaField(
         'Requisitos relacionados', validators=[Optional(), Length(max=2000)]
@@ -138,12 +118,6 @@ class PublicarVigenteForm(FlaskForm):
             Length(max=1000),
         ],
     )
-    aprovado_por_id = SelectField(
-        'Aprovado por',
-        coerce=int,
-        choices=[],
-        validators=[DataRequired(message='Selecione o aprovador.')],
-    )
     submit = SubmitField('Publicar como Vigente')
 
 
@@ -164,25 +138,8 @@ class EnviarAprovacaoForm(FlaskForm):
 
 
 class AprovarRevisaoForm(FlaskForm):
-    elaborado_por_id = SelectField(
-        'Elaborado por',
-        coerce=int,
-        choices=[],
-        validators=[DataRequired(message='Selecione quem elaborou.')],
-    )
-    revisado_por_id = SelectField(
-        'Revisado por',
-        coerce=int,
-        choices=[],
-        validators=[DataRequired(message='Selecione quem revisou.')],
-    )
-    aprovado_por_id = SelectField(
-        'Aprovado por',
-        coerce=int,
-        choices=[],
-        validators=[DataRequired(message='Selecione o aprovador.')],
-    )
-    submit = SubmitField('Aprovar Revisão')
+    """Approve revision with auto-set approval user and immediate publication."""
+    submit = SubmitField('Aprovar e Publicar')
 
 
 class ReprovarRevisaoForm(FlaskForm):

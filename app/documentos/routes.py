@@ -804,7 +804,6 @@ def novo():
     _ensure_documento_matriz_schema()
     form = NovoDocumentoForm()
     form.tipo_documento.choices = _choices_tipos()
-    _populate_user_selects(form)
     formularios_choices = _formularios_choices()
 
     if form.validate_on_submit():
@@ -827,9 +826,7 @@ def novo():
             tipo_documento=form.tipo_documento.data,
             revisao_atual=form.revisao_inicial.data,
             status=StatusDocumento.RASCUNHO,
-            elaborado_por_id=form.elaborado_por_id.data or None,
-            revisado_por_id=form.revisado_por_id.data or None,
-            aprovado_por_id=form.aprovado_por_id.data or None,
+            elaborado_por_id=current_user.id,  # Always the authenticated user
             requisito_relacionado=_resumo_requisitos_matriz(
                 matriz_json,
                 form.requisito_relacionado.data,
@@ -934,52 +931,19 @@ def detalhe(id):
     reprovar_form = ReprovarRevisaoForm()
     publicar_revisao_form = PublicarRevisaoForm()
 
-    aprovadores = (
-        Usuario.query
-        .filter(
-            Usuario.ativo == True,
-            Usuario.perfil.in_([Perfil.APROVADOR, Perfil.ADMINISTRADOR]),
-        )
-        .order_by(Usuario.nome)
-        .all()
-    )
-    todos_usuarios = (
-        Usuario.query
-        .filter(Usuario.ativo == True)
-        .order_by(Usuario.nome)
-        .all()
-    )
-    publicar_form.aprovado_por_id.choices = [(u.id, u.nome) for u in aprovadores]
-    aprovar_form.aprovado_por_id.choices = [(u.id, u.nome) for u in aprovadores]
-    aprovar_form.elaborado_por_id.choices = [(u.id, u.nome) for u in todos_usuarios]
-    aprovar_form.revisado_por_id.choices = [(u.id, u.nome) for u in todos_usuarios]
-
-    # Pre-fill from existing revision data
-    if revisao_ativa:
-        if revisao_ativa.elaborado_por_id and not aprovar_form.elaborado_por_id.data:
-            aprovar_form.elaborado_por_id.data = revisao_ativa.elaborado_por_id
-        if revisao_ativa.revisado_por_id and not aprovar_form.revisado_por_id.data:
-            aprovar_form.revisado_por_id.data = revisao_ativa.revisado_por_id
-        if revisao_ativa.aprovado_por_id and not aprovar_form.aprovado_por_id.data:
-            aprovar_form.aprovado_por_id.data = revisao_ativa.aprovado_por_id
-    # Pre-fill approver for vigente publish form
-    if doc.aprovado_por_id and not publicar_form.aprovado_por_id.data:
-        publicar_form.aprovado_por_id.data = doc.aprovado_por_id
-
     # ── Permissions ────────────────────────────────────────────────────────────
     pode_editar = current_user.pode_editar_documentos()
     pode_publicar = (
-        (current_user.pode_abrir_revisao() or current_user.pode_aprovar())
+        current_user.pode_aprovar()
         and doc.status in [StatusDocumento.RASCUNHO, StatusDocumento.APROVADO]
         and revisao_ativa is None  # only for simple import path (Rascunho→Vigente)
     )
     pode_ver_docx = current_user.pode_editar_documentos()
-    tem_aprovadores = len(aprovadores) > 0
 
     # Debug: log the publishability state to help diagnose client issues
     current_app.logger.debug(
-        'detalhe page: pode_publicar=%s, tem_aprovadores=%s, caminho_pdf_vigente=%s, has_content_html=%s',
-        pode_publicar, tem_aprovadores, doc.caminho_pdf_vigente, bool(doc.content_html),
+        'detalhe page: pode_publicar=%s, caminho_pdf_vigente=%s, has_content_html=%s',
+        pode_publicar, doc.caminho_pdf_vigente, bool(doc.content_html),
     )
 
     return render_template(
@@ -1000,7 +964,6 @@ def detalhe(id):
         pode_editar=pode_editar,
         pode_publicar=pode_publicar,
         pode_ver_docx=pode_ver_docx,
-        tem_aprovadores=tem_aprovadores,
         pode_abrir_revisao=current_user.pode_abrir_revisao(),
         pode_revisar=current_user.pode_revisar(),
         pode_aprovar_doc=current_user.pode_aprovar(),
@@ -1029,16 +992,13 @@ def editar(id):
     _ensure_documento_matriz_schema()
     form = EditarDocumentoForm(obj=doc)
     form.tipo_documento.choices = _choices_tipos()
-    _populate_user_selects(form)
     formularios_choices = _formularios_choices()
 
     if form.validate_on_submit():
         matriz_json = _normalize_matriz_json(form.matriz_correlacao_json.data)
         doc.titulo = form.titulo.data.strip()
         doc.tipo_documento = form.tipo_documento.data
-        doc.elaborado_por_id = form.elaborado_por_id.data or None
-        doc.revisado_por_id = form.revisado_por_id.data or None
-        doc.aprovado_por_id = form.aprovado_por_id.data or None
+        # Do NOT change elaborado_por_id, revisado_por_id, aprovado_por_id — these are auto-managed
         doc.requisito_relacionado = _resumo_requisitos_matriz(
             matriz_json,
             form.requisito_relacionado.data,
@@ -1068,11 +1028,8 @@ def editar(id):
         current_app.logger.warning('editar validation failed: %s', erros)
         flash(f'Erro ao salvar: {erros}', 'danger')
 
-    # Pre-populate optional selects with stored value (or 0 for empty)
+    # Pre-populate optional fields with stored values
     if request.method == 'GET':
-        form.elaborado_por_id.data = doc.elaborado_por_id or 0
-        form.revisado_por_id.data = doc.revisado_por_id or 0
-        form.aprovado_por_id.data = doc.aprovado_por_id or 0
         form.matriz_correlacao_json.data = doc.matriz_correlacao_json or ''
 
     return render_template(
@@ -1173,7 +1130,8 @@ def upload_pdf(id):
 @documentos.route('/<int:id>/publicar-vigente', methods=['POST'])
 @login_required
 def publicar_vigente(id):
-    if not (current_user.pode_abrir_revisao() or current_user.pode_aprovar()):
+    # Only approvers can publish
+    if not current_user.pode_aprovar():
         abort(403)
 
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
@@ -1196,25 +1154,7 @@ def publicar_vigente(id):
         )
         return redirect(url_for('documentos.detalhe', id=id))
 
-    aprovadores = (
-        Usuario.query
-        .filter(
-            Usuario.ativo == True,
-            Usuario.perfil.in_([Perfil.APROVADOR, Perfil.ADMINISTRADOR]),
-        )
-        .all()
-    )
-
     form = PublicarVigenteForm()
-    form.aprovado_por_id.choices = [(u.id, u.nome) for u in aprovadores]
-
-    # Debug log incoming request/form to help diagnose silent failures
-    current_app.logger.debug(
-        'publicar_vigente called', extra={
-            'user_id': getattr(current_user, 'id', None),
-            'form_keys': list(request.form.keys()),
-        }
-    )
 
     if form.validate_on_submit():
         agora = agora_brasilia()
@@ -1222,8 +1162,6 @@ def publicar_vigente(id):
         # Generate PDF from online content if needed
         if doc.content_mode == 'online_editor' and doc.content_html:
             from app.utils.html_pdf import gerar_pdf_de_html, metadata_from_documento
-            doc.aprovado_por_id = form.aprovado_por_id.data
-            doc.data_aprovacao = agora
             meta = metadata_from_documento(doc)
             meta['status'] = StatusDocumento.VIGENTE
             meta['historico_revisoes'] = _build_historico_revisoes(doc)
@@ -1235,11 +1173,11 @@ def publicar_vigente(id):
             else:
                 flash('Aviso: não foi possível gerar o PDF automaticamente.', 'warning')
 
-        doc.status = StatusDocumento.VIGENTE
-        if not doc.aprovado_por_id:
-            doc.aprovado_por_id = form.aprovado_por_id.data
-        doc.data_aprovacao = doc.data_aprovacao or agora
+        # Auto-set approval user and timestamps
+        doc.aprovado_por_id = current_user.id
+        doc.data_aprovacao = agora
         doc.data_publicacao = agora
+        doc.status = StatusDocumento.VIGENTE
         doc.atualizado_em = agora
 
         registrar_evento(
@@ -1630,22 +1568,9 @@ def aprovar_revisao(id, rev_id):
         return redirect(url_for('documentos.detalhe', id=id))
 
     form = AprovarRevisaoForm()
-    todos_usuarios = (
-        Usuario.query
-        .filter(Usuario.ativo == True)
-        .order_by(Usuario.nome)
-        .all()
-    )
-    aprovadores = [
-        u for u in todos_usuarios
-        if u.perfil in [Perfil.APROVADOR, Perfil.ADMINISTRADOR]
-    ]
-    form.elaborado_por_id.choices = [(u.id, u.nome) for u in todos_usuarios]
-    form.revisado_por_id.choices = [(u.id, u.nome) for u in todos_usuarios]
-    form.aprovado_por_id.choices = [(u.id, u.nome) for u in aprovadores]
 
     if not form.validate_on_submit():
-        flash('Preencha todos os campos de aprovação.', 'danger')
+        flash('Erro ao aprovar revisão. Tente novamente.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
     agora = agora_brasilia()
@@ -1655,9 +1580,8 @@ def aprovar_revisao(id, rev_id):
     editaveis_dir = current_app.config['EDITAVEIS_DOCX_DIR']
 
     # ── Set approval metadata ──────────────────────────────────────────────────
-    revisao.elaborado_por_id = form.elaborado_por_id.data
-    revisao.revisado_por_id = form.revisado_por_id.data
-    revisao.aprovado_por_id = form.aprovado_por_id.data
+    # Approval is done by current_user; keep elaborado and revisado as-is
+    revisao.aprovado_por_id = current_user.id
     revisao.data_revisao = agora
     revisao.data_aprovacao = agora
 
@@ -1732,9 +1656,13 @@ def aprovar_revisao(id, rev_id):
     doc.status = StatusDocumento.VIGENTE
     doc.caminho_pdf_vigente = nome_pdf_novo if pdf_gerado else doc.caminho_pdf_vigente
     doc.caminho_docx_editavel = nome_docx_novo
-    doc.elaborado_por_id = form.elaborado_por_id.data
-    doc.revisado_por_id = form.revisado_por_id.data
-    doc.aprovado_por_id = form.aprovado_por_id.data
+    # Auto-set approval user
+    doc.aprovado_por_id = current_user.id
+    # Keep elaborado and revisado from revision (or maintain as-is if not already set)
+    if revisao.elaborado_por_id:
+        doc.elaborado_por_id = revisao.elaborado_por_id
+    if revisao.revisado_por_id:
+        doc.revisado_por_id = revisao.revisado_por_id
     doc.data_aprovacao = agora
     doc.data_publicacao = agora
     doc.atualizado_em = agora
@@ -1756,10 +1684,9 @@ def aprovar_revisao(id, rev_id):
     registrar_evento(
         doc.id, current_user.id,
         AcaoEvento.APROVADO,
-        f'Rev{revisao.numero_revisao:02d} aprovada por {current_user.nome}. '
+        f'Rev{revisao.numero_revisao:02d} aprovada e publicada por {current_user.nome}. '
         f'Elaborado: {revisao.elaborado_por.nome if revisao.elaborado_por else "-"}, '
-        f'Revisado: {revisao.revisado_por.nome if revisao.revisado_por else "-"}, '
-        f'Aprovado: {revisao.aprovado_por.nome if revisao.aprovado_por else "-"}.',
+        f'Revisado: {revisao.revisado_por.nome if revisao.revisado_por else "-"}.',
     )
     registrar_evento(
         doc.id, current_user.id,
@@ -2195,15 +2122,6 @@ def preview_documento(id):
         return redirect(url_for('documentos.detalhe', id=id))
 
     publicar_form = PublicarVigenteForm()
-    aprovadores = (
-        Usuario.query
-        .filter(Usuario.ativo == True,
-                Usuario.perfil.in_([Perfil.APROVADOR, Perfil.ADMINISTRADOR]))
-        .order_by(Usuario.nome).all()
-    )
-    publicar_form.aprovado_por_id.choices = [(u.id, u.nome) for u in aprovadores]
-    if doc.aprovado_por_id:
-        publicar_form.aprovado_por_id.data = doc.aprovado_por_id
 
     pode_publicar = (
         (current_user.pode_abrir_revisao() or current_user.pode_aprovar())
@@ -2234,7 +2152,7 @@ def preview_documento(id):
         pode_publicar=pode_publicar,
         pode_aprovar_doc=current_user.pode_aprovar(),
         pode_editar=current_user.pode_editar_documentos(),
-        tem_aprovadores=len(aprovadores) > 0,
+        tem_aprovadores=current_user.pode_aprovar(),
         revisao_ativa=None,
     )
 
@@ -2250,24 +2168,7 @@ def preview_revisao(id, rev_id):
         flash('Não há conteúdo online para visualizar nesta revisão.', 'warning')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    todos_usuarios = (
-        Usuario.query.filter(Usuario.ativo == True).order_by(Usuario.nome).all()
-    )
-    aprovadores = [
-        u for u in todos_usuarios
-        if u.perfil in [Perfil.APROVADOR, Perfil.ADMINISTRADOR]
-    ]
-
     aprovar_form = AprovarRevisaoForm()
-    aprovar_form.elaborado_por_id.choices = [(u.id, u.nome) for u in todos_usuarios]
-    aprovar_form.revisado_por_id.choices = [(u.id, u.nome) for u in todos_usuarios]
-    aprovar_form.aprovado_por_id.choices = [(u.id, u.nome) for u in aprovadores]
-    if revisao.elaborado_por_id:
-        aprovar_form.elaborado_por_id.data = revisao.elaborado_por_id
-    if revisao.revisado_por_id:
-        aprovar_form.revisado_por_id.data = revisao.revisado_por_id
-    if revisao.aprovado_por_id:
-        aprovar_form.aprovado_por_id.data = revisao.aprovado_por_id
 
     reprovar_form = ReprovarRevisaoForm()
 
@@ -2292,7 +2193,7 @@ def preview_revisao(id, rev_id):
         pode_publicar=False,
         pode_aprovar_doc=current_user.pode_aprovar(),
         pode_editar=current_user.pode_editar_documentos(),
-        tem_aprovadores=len(aprovadores) > 0,
+        tem_aprovadores=current_user.pode_aprovar(),
         revisao_ativa=revisao,
     )
 
