@@ -22,6 +22,7 @@ class AcaoEvento:
     DISTRIBUICAO_REGISTRADA = 'Distribuição registrada'
     CONTEUDO_EDITADO_ONLINE = 'Conteúdo editado online'
     REPROVADO = 'Revisão reprovada'
+    DOCUMENTO_EXCLUIDO = 'Documento excluído permanentemente'
 
     # Bootstrap icon name for each action (used in history timeline)
     ICONE = {
@@ -41,6 +42,7 @@ class AcaoEvento:
         DISTRIBUICAO_REGISTRADA: 'diagram-3',
         CONTEUDO_EDITADO_ONLINE: 'pencil-square',
         REPROVADO: 'x-octagon',
+        DOCUMENTO_EXCLUIDO: 'trash',
     }
 
     # Bootstrap colour for the timeline icon
@@ -61,6 +63,7 @@ class AcaoEvento:
         DISTRIBUICAO_REGISTRADA: 'info',
         CONTEUDO_EDITADO_ONLINE: 'primary',
         REPROVADO: 'danger',
+        DOCUMENTO_EXCLUIDO: 'danger',
     }
 
 

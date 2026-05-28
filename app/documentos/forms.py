@@ -176,6 +176,24 @@ class ListaMestraConfigForm(FlaskForm):
     submit = SubmitField('Salvar Configuração')
 
 
+class UploadPdfForm(FlaskForm):
+    """Form for uploading a PDF file for PA/PT procedure documents."""
+
+    arquivo = FileField(
+        'Arquivo PDF',
+        validators=[
+            DataRequired(message='Selecione um arquivo PDF.'),
+            FileAllowed(['pdf'], 'Apenas arquivos PDF são permitidos.'),
+        ],
+    )
+    motivo = TextAreaField(
+        'Motivo / Descrição',
+        validators=[Optional(), Length(max=500)],
+        description='Ex: Emissão inicial do procedimento.',
+    )
+    submit = SubmitField('Enviar PDF')
+
+
 class DocumentoExternoForm(FlaskForm):
     """Form for registering or editing an external document."""
 

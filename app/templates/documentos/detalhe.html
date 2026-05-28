@@ -55,6 +55,13 @@
             <i class="bi bi-pencil me-1"></i>{% if doc.status == 'Vigente' %}Metadados{% else %}Editar{% endif %}
           </a>
         {% endif %}
+        {% if current_user.perfil == 'Administrador' %}
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                data-bs-toggle="modal" data-bs-target="#modalExcluir"
+                title="Excluir permanentemente">
+          <i class="bi bi-trash me-1"></i>Excluir
+        </button>
+        {% endif %}
       </div>
 
     </div>
@@ -353,8 +360,48 @@
       </div>
     </div>
 
+    {# ── Upload PDF (revisão em andamento) ── #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-file-earmark-pdf me-1 text-danger"></i>
+        Enviar PDF da Revisão
+        {% if revisao_ativa.content_mode == 'uploaded_file' and revisao_ativa.arquivo_pdf %}
+        <span class="badge bg-success ms-1">PDF enviado</span>
+        {% endif %}
+      </div>
+      <div class="card-body py-2">
+        {% if revisao_ativa.content_mode == 'uploaded_file' and revisao_ativa.arquivo_pdf %}
+        <div class="alert alert-success small py-2 mb-2">
+          <i class="bi bi-check-circle me-1"></i>PDF já enviado: <strong>{{ revisao_ativa.arquivo_pdf }}</strong>
+        </div>
+        <p class="small text-muted mb-2">Envie um novo PDF para substituir o atual.</p>
+        {% else %}
+        <p class="small text-muted mb-2">
+          Envie o procedimento em PDF em vez de usar o editor online.
+          O arquivo passará pelo fluxo normal de aprovação.
+        </p>
+        {% endif %}
+        <form method="POST"
+              action="{{ url_for('documentos.upload_pdf_revisao', id=doc.id, rev_id=revisao_ativa.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_pdf_form.hidden_tag() }}
+          <div class="mb-2">
+            {{ upload_pdf_form.arquivo(class="form-control form-control-sm") }}
+            {% for e in upload_pdf_form.arquivo.errors %}
+              <div class="text-danger small">{{ e }}</div>
+            {% endfor %}
+          </div>
+          <div class="mb-2">
+            {{ upload_pdf_form.motivo(class="form-control form-control-sm", rows="2",
+               placeholder="Descrição / motivo (opcional)") }}
+          </div>
+          {{ upload_pdf_form.submit(class="btn btn-sm btn-danger w-100") }}
+        </form>
+      </div>
+    </div>
+
     {# ── Enviar para aprovação manual (quando há conteúdo mas status ainda Em revisão) ── #}
-    {% if revisao_ativa.content_html %}
+    {% if revisao_ativa.content_html or (revisao_ativa.content_mode == 'uploaded_file' and revisao_ativa.arquivo_pdf) %}
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-bottom fw-semibold small py-2">
         <i class="bi bi-send me-1 text-primary"></i>Enviar para Aprovação
@@ -387,6 +434,11 @@
        target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-3">
       <i class="bi bi-eye me-1"></i>Visualizar Documento (Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }})
     </a>
+    {% elif revisao_ativa.content_mode == 'uploaded_file' and revisao_ativa.arquivo_pdf %}
+    <div class="alert alert-info small py-2 mb-3">
+      <i class="bi bi-file-earmark-pdf me-1"></i>
+      Conteúdo: <strong>PDF enviado</strong> ({{ revisao_ativa.arquivo_pdf }})
+    </div>
     {% endif %}
     {% if pode_aprovar_doc %}
     <div class="card border-0 shadow-sm mb-3 border-success">
@@ -431,6 +483,11 @@
        target="_blank" class="btn btn-sm btn-outline-secondary w-100 mb-3">
       <i class="bi bi-eye me-1"></i>Visualizar Documento (Rev{{ '%02d' | format(revisao_ativa.numero_revisao) }})
     </a>
+    {% elif revisao_ativa.content_mode == 'uploaded_file' and revisao_ativa.arquivo_pdf %}
+    <div class="alert alert-info small py-2 mb-3">
+      <i class="bi bi-file-earmark-pdf me-1"></i>
+      Conteúdo: <strong>PDF enviado</strong> ({{ revisao_ativa.arquivo_pdf }})
+    </div>
     {% endif %}    {% if pode_abrir_revisao or pode_aprovar_doc %}
     <div class="card border-0 shadow-sm mb-3 border-success">
       <div class="card-header bg-success-subtle fw-semibold small">
@@ -445,6 +502,10 @@
           {% if revisao_ativa.content_mode == 'online_editor' %}
           <div class="alert alert-info small py-2 mb-2">
             <i class="bi bi-info-circle me-1"></i>PDF será gerado a partir do conteúdo online.
+          </div>
+          {% elif revisao_ativa.content_mode == 'uploaded_file' %}
+          <div class="alert alert-info small py-2 mb-2">
+            <i class="bi bi-file-earmark-pdf me-1"></i>PDF enviado será publicado como vigente.
           </div>
           {% endif %}
           <div class="alert alert-warning small mb-2 py-2">
@@ -485,9 +546,49 @@
         {% endif %}
       </div>
     </div>
+
+    {# ── Upload PDF (rascunho inicial) ── #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-bottom fw-semibold small py-2">
+        <i class="bi bi-file-earmark-pdf me-1 text-danger"></i>
+        Enviar PDF
+        {% if doc.content_mode == 'uploaded_file' %}
+        <span class="badge bg-success ms-1">PDF enviado</span>
+        {% endif %}
+      </div>
+      <div class="card-body py-2">
+        {% if doc.content_mode == 'uploaded_file' %}
+        <div class="alert alert-success small py-2 mb-2">
+          <i class="bi bi-check-circle me-1"></i>PDF já enviado e pronto para publicação.
+        </div>
+        <p class="small text-muted mb-2">Envie um novo PDF para substituir o atual.</p>
+        {% else %}
+        <p class="small text-muted mb-2">
+          Envie o procedimento em PDF em vez de usar o editor online.
+          O documento permanece em Rascunho até ser publicado por um aprovador.
+        </p>
+        {% endif %}
+        <form method="POST"
+              action="{{ url_for('documentos.upload_pdf', id=doc.id) }}"
+              enctype="multipart/form-data">
+          {{ upload_pdf_form.hidden_tag() }}
+          <div class="mb-2">
+            {{ upload_pdf_form.arquivo(class="form-control form-control-sm") }}
+            {% for e in upload_pdf_form.arquivo.errors %}
+              <div class="text-danger small">{{ e }}</div>
+            {% endfor %}
+          </div>
+          <div class="mb-2">
+            {{ upload_pdf_form.motivo(class="form-control form-control-sm", rows="2",
+               placeholder="Descrição / motivo (opcional)") }}
+          </div>
+          {{ upload_pdf_form.submit(class="btn btn-sm btn-danger w-100") }}
+        </form>
+      </div>
+    </div>
     {% endif %}
 
-    {% if pode_publicar and doc.content_html %}
+    {% if pode_publicar and (doc.content_html or doc.content_mode == 'uploaded_file') %}
     <div class="card border-0 shadow-sm border-success mb-3">
       <div class="card-header bg-success-subtle border-bottom fw-semibold small text-success">
         <i class="bi bi-journals me-1"></i>Publicar como Vigente
@@ -511,10 +612,10 @@
         </form>
       </div>
     </div>
-    {% elif not doc.content_html %}
+    {% elif not doc.content_html and doc.content_mode != 'uploaded_file' %}
     <div class="alert alert-warning small">
       <i class="bi bi-exclamation-triangle me-2"></i>
-      Crie conteúdo pelo <strong>editor online</strong> para publicar como vigente.
+      Crie conteúdo pelo <strong>editor online</strong> ou envie um <strong>PDF</strong> para publicar como vigente.
     </div>
     {% endif %}
 
@@ -533,5 +634,45 @@
 {# ── Modal: Publicar como Vigente — removido; form agora é inline no card ─── #}
 
 {# ── Modais: todos removidos — forms agora são inline nos cards ── #}
+
+{# ── Modal: Confirmar exclusão permanente ── #}
+{% if current_user.perfil == 'Administrador' %}
+<div class="modal fade" id="modalExcluir" tabindex="-1"
+     aria-labelledby="modalExcluirLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="modalExcluirLabel">
+          <i class="bi bi-exclamation-triangle me-2"></i>Excluir Documento
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="fw-bold text-danger mb-2">
+          <i class="bi bi-trash me-1"></i>Esta ação é irreversível!
+        </p>
+        <p>Tem certeza que deseja excluir permanentemente o documento
+           <strong>{{ doc.codigo }} – {{ doc.titulo }}</strong>?</p>
+        <ul class="small text-muted mb-0">
+          <li>Todas as revisões e histórico serão removidos</li>
+          <li>PDFs e arquivos associados serão apagados do servidor</li>
+          <li>Referências na Matriz de Correlação serão desassociadas</li>
+          <li>O código ficará livre para ser reutilizado em um novo documento</li>
+        </ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <form method="POST" action="{{ url_for('documentos.excluir_documento', id=doc.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger"
+                  onclick="return confirm('Confirmação final: deseja realmente EXCLUIR permanentemente {{ doc.codigo }}?')">
+            <i class="bi bi-trash me-1"></i>Sim, Excluir Permanentemente
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endblock %}

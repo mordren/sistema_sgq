@@ -22,7 +22,7 @@ from app.documentos.forms import (
     AbrirRevisaoForm, EnviarAprovacaoForm,
     AprovarRevisaoForm, ReprovarRevisaoForm, PublicarRevisaoForm,
     EditorConteudoForm, ListaMestraConfigForm,
-    DocumentoExternoForm,
+    DocumentoExternoForm, UploadPdfForm,
 )
 from app.documentos.exportar import (
     gerar_excel_lista_mestra, gerar_pdf_lista_mestra, gerar_csv_lista_mestra,
@@ -40,6 +40,7 @@ from app.utils.file_utils import (
     nome_pdf_vigente, nome_docx_editavel,
     caminho_vigente_pdf, caminho_editavel_docx,
     caminho_em_revisao, caminho_obsoleto, mover_arquivo, copiar_arquivo,
+    extensao_permitida, ALLOWED_PDF,
 )
 from app.utils.datetime_utils import agora_brasilia
 from app.utils.historico import registrar_evento
@@ -904,6 +905,7 @@ def detalhe(id):
     aprovar_form = AprovarRevisaoForm()
     reprovar_form = ReprovarRevisaoForm()
     publicar_revisao_form = PublicarRevisaoForm()
+    upload_pdf_form = UploadPdfForm()
 
     # ── Permissions ────────────────────────────────────────────────────────────
     pode_editar = current_user.pode_editar_documentos()
@@ -934,6 +936,7 @@ def detalhe(id):
         aprovar_form=aprovar_form,
         reprovar_form=reprovar_form,
         publicar_revisao_form=publicar_revisao_form,
+        upload_pdf_form=upload_pdf_form,
         pode_editar=pode_editar,
         pode_editar_meta=pode_editar_meta,
         pode_publicar=pode_publicar,
@@ -1025,6 +1028,83 @@ def editar(id):
     )
 
 
+# ── Excluir documento (admin apenas) ──────────────────────────────────────────
+
+@documentos.route('/<int:id>/excluir', methods=['POST'])
+@login_required
+def excluir_documento(id):
+    """Permanentemente exclui um documento e todos os seus dados.
+
+    Apenas Administradores podem executar esta ação.
+    Remove: registros do BD, arquivos PDF/DOCX, histórico, distribuições.
+    """
+    if current_user.perfil != Perfil.ADMINISTRADOR:
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    codigo = doc.codigo
+    titulo = doc.titulo
+
+    # ── 1. Desassociar registros da Matriz de Correlação ─────────────────────
+    MatrizCorrelacao.query.filter_by(documento_id=id).update(
+        {'documento_id': None}
+    )
+
+    # ── 2. Remover arquivos físicos ──────────────────────────────────────────
+    vigentes_dir = current_app.config['VIGENTES_PDF_DIR']
+    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
+    obsoletos_dir = current_app.config['OBSOLETOS_DIR']
+    editaveis_dir = current_app.config['EDITAVEIS_DOCX_DIR']
+
+    arquivos_para_remover = []
+
+    if doc.caminho_pdf_vigente:
+        arquivos_para_remover.append(
+            os.path.join(vigentes_dir, doc.caminho_pdf_vigente)
+        )
+    if doc.caminho_obsoleto:
+        arquivos_para_remover.append(
+            os.path.join(obsoletos_dir, doc.caminho_obsoleto)
+        )
+    if doc.caminho_docx_editavel:
+        arquivos_para_remover.append(
+            os.path.join(editaveis_dir, doc.caminho_docx_editavel)
+        )
+
+    # Remove PDFs de revisões em andamento
+    for rev in doc.revisoes:
+        if rev.arquivo_pdf:
+            arquivos_para_remover.append(
+                os.path.join(em_revisao_dir, rev.arquivo_pdf)
+            )
+        if rev.arquivo_docx:
+            arquivos_para_remover.append(
+                os.path.join(em_revisao_dir, rev.arquivo_docx)
+            )
+
+    for caminho in arquivos_para_remover:
+        try:
+            if os.path.isfile(caminho):
+                os.remove(caminho)
+        except Exception:
+            current_app.logger.warning(
+                'Não foi possível remover arquivo %s', caminho
+            )
+
+    # ── 3. Remover registros do banco de dados ───────────────────────────────
+    # As relações com cascade='all, delete-orphan' cuidam de:
+    #   revisoes, historico, distribuicoes
+    db.session.delete(doc)
+    db.session.commit()
+
+    flash(
+        f'Documento {codigo} – {titulo} foi excluído permanentemente.',
+        'success',
+    )
+    return redirect(url_for('documentos.lista'))
+
+
 # ── Upload DOCX ────────────────────────────────────────────────────────────────
 
 @documentos.route('/<int:id>/upload-docx', methods=['POST'])
@@ -1037,15 +1117,66 @@ def upload_docx(id):
     return redirect(url_for('documentos.detalhe', id=id))
 
 
-# ── Upload PDF ─────────────────────────────────────────────────────────────────
+# ── Upload PDF (Rascunho inicial — somente PA e PT) ───────────────────────────
 
 @documentos.route('/<int:id>/upload-pdf', methods=['POST'])
 @login_required
+@bloquear_auditor
 def upload_pdf(id):
-    flash(
-        'Envio de PDF foi desativado para documentos SGQ. Use apenas o editor online.',
-        'warning',
+    """Upload a PDF for a PA/PT document in Rascunho state.
+
+    The file is stored in EM_REVISAO_DIR under the vigente naming convention.
+    It only moves to VIGENTES_PDF_DIR when publicar_vigente is called by an approver.
+    """
+    if not current_user.pode_editar_documentos():
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    # Upload de PDF disponível para todos os tipos de documentos SGQ
+    if doc.status != StatusDocumento.RASCUNHO:
+        flash('Upload de PDF de rascunho está disponível apenas para documentos em Rascunho.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    form = UploadPdfForm()
+    if not form.validate_on_submit():
+        for _field, errs in form.errors.items():
+            for e in errs:
+                flash(e, 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    arquivo = form.arquivo.data
+
+    # Defensive extension check (Flask-WTF FileAllowed already validates, but double-check)
+    if not extensao_permitida(arquivo.filename, ALLOWED_PDF):
+        flash('Apenas arquivos PDF são permitidos.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # Deterministic staged filename in EM_REVISAO_DIR
+    nome_arquivo = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
+    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
+
+    try:
+        salvar_upload(arquivo, em_revisao_dir, nome_arquivo)
+    except Exception:
+        current_app.logger.exception('Erro ao salvar PDF de rascunho para doc %s', id)
+        flash('Erro ao salvar o arquivo. Tente novamente.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    doc.content_mode = 'uploaded_file'
+    doc.content_html = None
+    doc.atualizado_em = agora_brasilia()
+
+    descricao = (form.motivo.data or '').strip()
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.ARQUIVO_ENVIADO,
+        f'PDF enviado para rascunho: {nome_arquivo}'
+        + (f'. {descricao}' if descricao else ''),
     )
+    db.session.commit()
+
+    flash('PDF enviado com sucesso. Publique o documento para torná-lo Vigente.', 'success')
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1067,10 +1198,13 @@ def publicar_vigente(id):
         )
         return redirect(url_for('documentos.detalhe', id=id))
 
-    tem_conteudo = doc.content_mode == 'online_editor' and bool(doc.content_html)
+    tem_conteudo = (
+        (doc.content_mode == 'online_editor' and bool(doc.content_html)) or
+        (doc.content_mode == 'uploaded_file')
+    )
     if not tem_conteudo:
         flash(
-            'É necessário criar conteúdo pelo editor online antes de publicar como Vigente.',
+            'É necessário criar conteúdo pelo editor online ou enviar um PDF antes de publicar como Vigente.',
             'danger',
         )
         return redirect(url_for('documentos.detalhe', id=id))
@@ -1080,7 +1214,7 @@ def publicar_vigente(id):
     if form.validate_on_submit():
         agora = agora_brasilia()
 
-        # Generate PDF from online content if needed
+        # Generate PDF from online content or move staged uploaded PDF
         if doc.content_mode == 'online_editor' and doc.content_html:
             from app.utils.html_pdf import gerar_pdf_de_html, metadata_from_documento
             meta = metadata_from_documento(doc)
@@ -1093,6 +1227,20 @@ def publicar_vigente(id):
                 doc.caminho_pdf_vigente = nome_pdf_out
             else:
                 flash('Aviso: não foi possível gerar o PDF automaticamente.', 'warning')
+        elif doc.content_mode == 'uploaded_file':
+            # Move staged PDF from EM_REVISAO_DIR to VIGENTES_PDF_DIR
+            nome_pdf_out = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
+            src = caminho_em_revisao(nome_pdf_out)
+            dst = caminho_vigente_pdf(nome_pdf_out)
+            if arquivo_existe(src):
+                mover_arquivo(src, dst)
+                doc.caminho_pdf_vigente = nome_pdf_out
+            elif arquivo_existe(dst):
+                # Already in the right place (re-publish edge case)
+                doc.caminho_pdf_vigente = nome_pdf_out
+            else:
+                flash('Arquivo PDF enviado não encontrado. Reenvie o PDF e tente novamente.', 'danger')
+                return redirect(url_for('documentos.detalhe', id=id))
 
         # Auto-set approval user and timestamps
         doc.aprovado_por_id = current_user.id
@@ -1294,9 +1442,10 @@ def abrir_revisao(id):
         flash('Informe o motivo da revisão.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    if not (doc.content_mode == 'online_editor' and doc.content_html):
+    if not (doc.content_mode == 'online_editor' and doc.content_html) and \
+            not (doc.content_mode == 'uploaded_file' and doc.caminho_pdf_vigente):
         flash(
-            'Somente documentos com conteúdo do editor online podem abrir revisão.',
+            'Somente documentos com conteúdo (editor online ou PDF enviado) podem abrir revisão.',
             'danger',
         )
         return redirect(url_for('documentos.detalhe', id=id))
@@ -1312,7 +1461,7 @@ def abrir_revisao(id):
         data_elaboracao=agora_brasilia(),
         arquivo_docx=None,
         content_html=doc.content_html if doc.content_mode == 'online_editor' else None,
-        content_mode=doc.content_mode if doc.content_mode == 'online_editor' else None,
+        content_mode=doc.content_mode,
     )
 
     # Auto-assign default reviewer if one is configured
@@ -1357,11 +1506,61 @@ def upload_docx_revisao(id, rev_id):
 
 @documentos.route('/<int:id>/revisoes/<int:rev_id>/upload-pdf', methods=['POST'])
 @login_required
+@bloquear_auditor
 def upload_pdf_revisao(id, rev_id):
-    flash(
-        'Envio de PDF foi desativado para revisões SGQ. Use apenas o editor online.',
-        'warning',
+    """Upload a PDF for a PA/PT revision in Em revisão state."""
+    if not current_user.pode_editar_documentos():
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+    revisao = RevisaoDocumento.query.filter_by(
+        id=rev_id, documento_id=id
+    ).first_or_404()
+
+    # Upload de PDF disponível para todos os tipos de documentos SGQ
+    if revisao.status != StatusDocumento.EM_REVISAO:
+        flash('Upload de PDF disponível apenas para revisões em andamento (Em revisão).', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    form = UploadPdfForm()
+    if not form.validate_on_submit():
+        for _field, errs in form.errors.items():
+            for e in errs:
+                flash(e, 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    arquivo = form.arquivo.data
+
+    if not extensao_permitida(arquivo.filename, ALLOWED_PDF):
+        flash('Apenas arquivos PDF são permitidos.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # Revision-scoped filename in EM_REVISAO_DIR
+    nome_arquivo = nome_pdf_vigente(doc.codigo, revisao.numero_revisao, doc.titulo)
+    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
+
+    try:
+        salvar_upload(arquivo, em_revisao_dir, nome_arquivo)
+    except Exception:
+        current_app.logger.exception('Erro ao salvar PDF de revisão para doc %s rev %s', id, rev_id)
+        flash('Erro ao salvar o arquivo. Tente novamente.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    revisao.content_mode = 'uploaded_file'
+    revisao.content_html = None
+    revisao.arquivo_pdf = nome_arquivo
+    doc.atualizado_em = agora_brasilia()
+
+    descricao = (form.motivo.data or '').strip()
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.ARQUIVO_ENVIADO,
+        f'PDF enviado para revisão Rev{revisao.numero_revisao:02d}: {nome_arquivo}'
+        + (f'. {descricao}' if descricao else ''),
     )
+    db.session.commit()
+
+    flash('PDF enviado com sucesso. Envie para aprovação quando estiver pronto.', 'success')
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1388,9 +1587,13 @@ def enviar_para_aprovacao(id, rev_id):
         flash('Esta revisão não pode ser enviada para aprovação no estado atual.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    if not (revisao.content_mode == 'online_editor' and revisao.content_html):
+    tem_conteudo_revisao = (
+        (revisao.content_mode == 'online_editor' and bool(revisao.content_html)) or
+        (revisao.content_mode == 'uploaded_file' and bool(revisao.arquivo_pdf))
+    )
+    if not tem_conteudo_revisao:
         flash(
-            'A revisão precisa ter conteúdo do editor online antes do envio para aprovação.',
+            'A revisão precisa ter conteúdo do editor online ou PDF enviado antes do envio para aprovação.',
             'danger',
         )
         return redirect(url_for('documentos.detalhe', id=id))
@@ -1463,8 +1666,22 @@ def aprovar_revisao(id, rev_id):
             )
         else:
             flash('Aviso: não foi possível gerar o PDF automaticamente.', 'warning')
+    elif revisao.content_mode == 'uploaded_file' and revisao.arquivo_pdf:
+        src = caminho_em_revisao(revisao.arquivo_pdf)
+        dst = os.path.join(vigentes_dir, nome_pdf_novo)
+        if arquivo_existe(src):
+            copiar_arquivo(src, dst)
+            pdf_gerado = True
+            registrar_evento(
+                doc.id, current_user.id,
+                AcaoEvento.PDF_GERADO,
+                f'PDF copiado do arquivo enviado: {nome_pdf_novo}',
+            )
+        else:
+            flash('Arquivo PDF da revisão não encontrado. Reenvie o PDF e tente novamente.', 'danger')
+            return redirect(url_for('documentos.detalhe', id=id))
     else:
-        flash('Conteúdo online ausente. Não foi possível gerar o PDF desta revisão.', 'danger')
+        flash('Conteúdo ausente. Adicione conteúdo (editor online ou PDF) antes de aprovar.', 'danger')
         return redirect(url_for('documentos.detalhe', id=id))
 
     # ── Move previous PDF to obsoletos/ ───────────────────────────────────────
@@ -1497,6 +1714,9 @@ def aprovar_revisao(id, rev_id):
     if revisao.content_mode == 'online_editor':
         doc.content_html = revisao.content_html
         doc.content_mode = revisao.content_mode
+    elif revisao.content_mode == 'uploaded_file':
+        doc.content_html = None
+        doc.content_mode = 'uploaded_file'
 
     # ── Update revision ────────────────────────────────────────────────────────
     revisao.status = StatusDocumento.VIGENTE
@@ -1634,9 +1854,26 @@ def publicar_revisao(id, rev_id):
                 'Aviso: não foi possível gerar o PDF automaticamente a partir do conteúdo online.',
                 'warning',
             )
+    elif revisao.content_mode == 'uploaded_file' and revisao.arquivo_pdf:
+        src = caminho_em_revisao(revisao.arquivo_pdf)
+        dst = os.path.join(vigentes_dir, nome_pdf_novo)
+        if arquivo_existe(src):
+            mover_arquivo(src, dst)
+            pdf_gerado = True
+            registrar_evento(
+                doc.id, current_user.id,
+                AcaoEvento.PDF_GERADO,
+                f'PDF movido do arquivo enviado: {nome_pdf_novo}',
+            )
+        elif arquivo_existe(dst):
+            # File already in destination (edge case — already approved)
+            pdf_gerado = True
+        else:
+            flash('Arquivo PDF da revisão não encontrado. Reenvie o PDF e tente novamente.', 'danger')
+            return redirect(url_for('documentos.detalhe', id=id))
     else:
         flash(
-            'A revisão precisa ter conteúdo online para gerar o PDF e publicar.',
+            'A revisão precisa ter conteúdo (editor online ou PDF enviado) para ser publicada.',
             'danger',
         )
         return redirect(url_for('documentos.detalhe', id=id))
@@ -1665,10 +1902,13 @@ def publicar_revisao(id, rev_id):
     doc.data_aprovacao = revisao.data_aprovacao or agora
     doc.data_publicacao = agora
     doc.atualizado_em = agora
-    # Carry online content to document record
+    # Carry content mode to document record
     if revisao.content_mode == 'online_editor':
         doc.content_html = revisao.content_html
         doc.content_mode = revisao.content_mode
+    elif revisao.content_mode == 'uploaded_file':
+        doc.content_html = None
+        doc.content_mode = 'uploaded_file'
 
     # ── 4. Update revision ────────────────────────────────────────────────────
     revisao.status = StatusDocumento.VIGENTE
