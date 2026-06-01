@@ -1,4 +1,4 @@
-from flask import render_template, redirect, url_for, flash, request, abort
+from flask import render_template, redirect, url_for, flash, request, abort, session
 from flask_login import login_required, current_user
 from app.main import main
 from app.models import (
@@ -7,6 +7,7 @@ from app.models import (
     HistoricoEvento,
     Usuario,
     Perfil,
+    Alerta,
 )
 from app.models.documento import StatusDocumento
 from app.extensions import db
@@ -119,6 +120,9 @@ def dashboard():
         .all()
     )
 
+    # ── Alertas ativos (não descartados) ─────────────────────────────────────
+    alertas_ativos = Alerta.alertas_ativos()
+
     return render_template(
         'main/dashboard.html',
         title='Dashboard',
@@ -132,6 +136,7 @@ def dashboard():
         eventos_recentes=eventos_recentes,
         documentos_recentes=documentos_recentes,
         pendentes=pendentes,
+        alertas_ativos=alertas_ativos,
     )
 
 
@@ -139,6 +144,25 @@ def dashboard():
 @login_required
 def em_desenvolvimento():
     return render_template('main/em_desenvolvimento.html', title='Em desenvolvimento')
+
+
+@main.route('/limpar-pt-alerta', methods=['POST'])
+@login_required
+def limpar_pt_alerta():
+    """Clear the PT alert modal flag from the session after user clicks OK."""
+    session.pop('pt_alerta_modal', None)
+    session.pop('pt_alerta_data', None)
+    return '', 204
+
+
+@main.route('/descartar-alerta/<int:alerta_id>', methods=['POST'])
+@login_required
+def descartar_alerta(alerta_id):
+    """Dismiss a system alert (marks as discarded)."""
+    alerta = Alerta.query.get_or_404(alerta_id)
+    alerta.descartar(current_user.id)
+    flash('Alerta descartado.', 'info')
+    return redirect(url_for('main.dashboard'))
 
 
 # ── User CRUD (admins only) ────────────────────────────────────────────────────

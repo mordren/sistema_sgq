@@ -184,38 +184,77 @@
   /* ── TinyMCE initialisation ── */
   tinymce.init({
     selector: '#content_editor',
-    height: 600,
-    menubar: false,
+    height: 700,
+    menubar: 'file edit view insert format tools table help',
     resize: true,
     branding: false,
+    elementpath: true,
+    statusbar: true,
 
     plugins: [
-      'lists', 'link', 'table', 'code', 'image',
-      'searchreplace', 'wordcount', 'fullscreen',
-      'autolink', 'paste',
+      'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
+      'anchor', 'searchreplace', 'visualblocks', 'visualchars', 'code',
+      'fullscreen', 'insertdatetime', 'media', 'table', 'wordcount',
+      'emoticons', 'nonbreaking', 'pagebreak', 'codesample',
+      'directionality', 'lineheight',
     ],
 
     toolbar: [
-      'blocks fontfamily fontsize | bold italic underline strikethrough | forecolor backcolor | removeformat',
-      'alignleft aligncenter alignright alignjustify | bullist numlist | outdent indent | blockquote | link image table hr | searchreplace code fullscreen | undo redo',
+      'undo redo | blocks fontfamily fontsize | bold italic underline strikethrough',
+      'forecolor backcolor | superscript subscript | removeformat | code fullscreen',
+      'alignleft aligncenter alignright alignjustify | lineheight | outdent indent | bullist numlist | blockquote',
+      'link anchor image media table | charmap emoticons insertdatetime nonbreaking pagebreak codesample | searchreplace visualblocks visualchars',
     ],
     toolbar_mode: 'wrap',
+
+    /* Espaçamento de linha */
+    lineheight_formats: '1.0 1.15 1.25 1.5 1.6 2.0',
+
+    /* Fontes disponíveis */
+    font_family_formats:
+      'Arial=arial,helvetica,sans-serif;' +
+      'Arial Black=arial black,avant garde;' +
+      'Courier New=courier new,courier;' +
+      'Times New Roman=times new roman,times;' +
+      'Verdana=verdana,geneva;' +
+      'Tahoma=tahoma,arial,helvetica,sans-serif;' +
+      'Calibri=calibri,sans-serif;' +
+      'Georgia=georgia,palatino;',
+
+    /* Tamanhos de fonte */
+    font_size_formats: '8pt 9pt 10pt 11pt 12pt 14pt 16pt 18pt 20pt 24pt 28pt 36pt 48pt',
+
+    /* Estilos de parágrafo */
+    block_formats: 'Parágrafo=p;Título 1=h1;Título 2=h2;Título 3=h3;Título 4=h4;Pré-formatado=pre',
+
+    /* Cores personalizadas na paleta */
+    custom_colors: true,
 
     /* Match the print layout */
     content_style: [
       'body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt;',
-      '       line-height: 1.6; margin: 1.2rem; color: #212529; }',
-      'h1 { font-size: 13pt; } h2 { font-size: 12pt; } h3 { font-size: 11pt; }',
+      '       line-height: 1.5; margin: 1.2rem; color: #212529; }',
+      'p { margin: 0 0 4pt 0; line-height: 1.5; }',
+      'h1 { font-size: 13pt; margin: 10pt 0 4pt; } h2 { font-size: 12pt; margin: 8pt 0 3pt; } h3 { font-size: 11pt; margin: 6pt 0 3pt; } h4 { font-size: 10pt; margin: 4pt 0 2pt; }',
+      'pre, code { font-family: Courier New, monospace; font-size: 9pt; background: #f4f4f4; padding: 2px 4px; border-radius: 3px; }',
+      'blockquote { border-left: 3px solid #ccc; margin: 4pt 0 4pt 10pt; padding-left: 8pt; color: #555; }',
       'table { border-collapse: collapse; width: 100%; table-layout: fixed; word-wrap: break-word; }',
       'table td, table th { border: 1px solid #999; padding: 4px 6px; vertical-align: top;',
       '                     word-wrap: break-word; overflow-wrap: break-word; }',
       'table th { background: #e8e8e8; font-weight: bold; text-align: left; }',
+      'hr { border: none; border-top: 1px solid #ccc; margin: 8pt 0; }',
     ].join(' '),
 
-    /* Numbered list formatting */
-    lists_indent_on_tab: true,
+    /* Parágrafo padrão */
+    forced_root_block: 'p',
+    forced_root_block_attrs: {},
 
-    /* Table defaults — fixed layout so columns stay proportional in PDF */
+    /* Listas */
+    lists_indent_on_tab: true,
+    advlist_bullet_styles: 'default,circle,disc,square',
+    advlist_number_styles: 'default,lower-alpha,lower-roman,upper-alpha,upper-roman',
+
+    /* Tabelas */
     table_default_styles: {
       'border-collapse': 'collapse',
       'width': '100%',
@@ -223,12 +262,35 @@
       'word-wrap': 'break-word',
     },
     table_default_attributes: { border: '1' },
-    table_cell_advtab: false,
-    table_cell_class_list: [],
+    table_resize_bars: true,
+    table_toolbar: 'tableprops tabledelete | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol | tablecellprops tablemergecells tablesplitcells',
 
-    /* Paste from Word — keep structure, strip Office garbage */
-    paste_word_valid_elements: 'b,strong,i,em,u,s,span,p,h1,h2,h3,h4,ul,ol,li,table,tr,td,th,a',
-    paste_retain_style_properties: 'color,background-color,font-size,font-family,text-align',
+    /* Links */
+    link_assume_external_targets: true,
+    link_default_target: '_blank',
+
+    /* Quebra de página */
+    pagebreak_separator: '<!-- pagebreak -->',
+
+    /* Datas */
+    insertdatetime_formats: ['%d/%m/%Y', '%H:%M', '%d/%m/%Y %H:%M'],
+    insertdatetime_element: false,
+
+    /* Paste from Word */
+    paste_word_valid_elements: 'b,strong,i,em,u,s,del,sup,sub,span,p,h1,h2,h3,h4,ul,ol,li,table,tr,td,th,colgroup,col,a,br,hr',
+    paste_retain_style_properties: 'color,background-color,font-size,font-family,text-align,font-weight,font-style,text-decoration',
+
+    /* Remove line-height e margins inconsistentes do Word */
+    paste_postprocess: function (plugin, args) {
+      args.node.querySelectorAll('[style]').forEach(function (el) {
+        var s = el.getAttribute('style') || '';
+        s = s.replace(/line-height\s*:[^;]+;?/gi, '');
+        s = s.replace(/margin(?:-top|-bottom)?\s*:[^;]+;?/gi, '');
+        s = s.replace(/mso-[^:]+:[^;]+;?/gi, '');
+        s = s.trim().replace(/;+$/, '');
+        if (s) { el.setAttribute('style', s); } else { el.removeAttribute('style'); }
+      });
+    },
 
     /* ── Image upload ── */
     automatic_uploads: true,

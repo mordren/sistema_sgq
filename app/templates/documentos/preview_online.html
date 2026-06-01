@@ -173,6 +173,17 @@
     <button onclick="window.print()" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-printer me-1"></i>Imprimir
     </button>
+    {% if revisao %}
+      <a href="{{ url_for('documentos.imprimir_revisao', id=doc.id, rev_id=revisao.id) }}"
+         target="_blank" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-file-earmark-pdf me-1"></i>Salvar PDF
+      </a>
+    {% else %}
+      <a href="{{ url_for('documentos.imprimir_documento', id=doc.id) }}"
+         target="_blank" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-file-earmark-pdf me-1"></i>Salvar PDF
+      </a>
+    {% endif %}
     <a href="{{ back_url }}" class="btn btn-sm btn-outline-danger">
       <i class="bi bi-arrow-left me-1"></i>Voltar
     </a>
@@ -314,6 +325,8 @@
           {{ revisao.revisado_por.nome }}
         {% elif doc.revisado_por %}
           {{ doc.revisado_por.nome }}
+        {% elif revisor_global is defined and revisor_global %}
+          {{ revisor_global.nome }}
         {% else %}—{% endif %}
       </td>
       <td>

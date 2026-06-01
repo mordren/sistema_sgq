@@ -18,7 +18,7 @@ class ListaMestraConfig(db.Model):
         nullable=False,
         default='Lista Mestra de Documentos',
     )
-    codigo = db.Column(db.String(50), nullable=False, default='LM-01')
+    codigo = db.Column(db.String(50), nullable=False, default='FOR ADM 05')
     revisao_num = db.Column(db.Integer, nullable=False, default=0)
 
     elaborado_por_id = db.Column(
@@ -58,7 +58,7 @@ class ListaMestraConfig(db.Model):
             cfg = cls(
                 id=1,
                 titulo='Lista Mestra de Documentos',
-                codigo='LM-01',
+                codigo='FOR ADM 05',
                 revisao_num=0,
             )
             db.session.add(cfg)

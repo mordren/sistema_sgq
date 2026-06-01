@@ -11,7 +11,7 @@ from flask import (
     request, abort, send_file, current_app, Response, jsonify,
 )
 from flask_login import login_required, current_user
-from sqlalchemy import or_, text
+from sqlalchemy import or_, text, case
 
 from app.documentos import documentos
 from werkzeug.utils import secure_filename
@@ -28,7 +28,7 @@ from app.documentos.exportar import (
     gerar_excel_lista_mestra, gerar_pdf_lista_mestra, gerar_csv_lista_mestra,
 )
 from app.extensions import db
-from app.models import Documento, Usuario, HistoricoEvento, RevisaoDocumento, MatrizCorrelacao
+from app.models import Documento, Usuario, HistoricoEvento, RevisaoDocumento, MatrizCorrelacao, Alerta
 from app.models.documento_externo import DocumentoExterno
 from app.models.lista_mestra_config import ListaMestraConfig
 from app.models.documento import TipoDocumento, StatusDocumento
@@ -176,7 +176,7 @@ def lista():
         )
 
     pagination = (
-        query.order_by(Documento.tipo_documento, Documento.codigo)
+        query.order_by(*_order_by_tipo_codigo())
         .paginate(page=page, per_page=20, error_out=False)
     )
 
@@ -656,26 +656,322 @@ def excluir_matriz_correlacao(id):
     return redirect(url_for('documentos.matriz_correlacao'))
 
 
+# ── Cadastro Rápido de Documentos ──────────────────────────────────────────────
+
+@documentos.route('/cadastro-rapido', methods=['GET', 'POST'])
+@login_required
+@bloquear_auditor
+def cadastro_rapido():
+    """Express bulk registration of existing documents directly to VIGENTE status."""
+    if not current_user.pode_editar_documentos():
+        abort(403)
+
+    if request.method == 'POST':
+        dados = request.get_json(silent=True) or []
+        criados = 0
+        duplicados = []
+        erros = []
+
+        for item in dados:
+            codigo = (item.get('codigo') or '').strip().upper()
+            titulo = (item.get('titulo') or '').strip()
+            tipo = (item.get('tipo') or '').strip()
+            try:
+                revisao = int(item.get('revisao') or 0)
+            except (ValueError, TypeError):
+                revisao = 0
+
+            if not codigo or not titulo or not tipo:
+                continue
+
+            if Documento.query.filter_by(codigo=codigo).first():
+                duplicados.append(codigo)
+                continue
+
+            try:
+                _revisor = Usuario.revisor_padrao_ativo()
+                doc = Documento(
+                    codigo=codigo,
+                    titulo=titulo,
+                    tipo_documento=tipo,
+                    revisao_atual=revisao,
+                    status=StatusDocumento.RASCUNHO,
+                    elaborado_por_id=current_user.id,
+                    revisado_por_id=_revisor.id if _revisor else None,
+                    ativo=True,
+                )
+                db.session.add(doc)
+                db.session.flush()
+                registrar_evento(
+                    doc.id, current_user.id,
+                    AcaoEvento.DOCUMENTO_CADASTRADO,
+                    f'Cadastro rápido (rascunho) por {current_user.nome}.',
+                )
+                criados += 1
+            except Exception as exc:
+                db.session.rollback()
+                erros.append(f'{codigo}: {str(exc)}')
+
+        if criados:
+            db.session.commit()
+
+        return jsonify({'criados': criados, 'duplicados': duplicados, 'erros': erros})
+
+    tipos = [(t, TipoDocumento.LABELS.get(t, t)) for t in TipoDocumento.TODOS]
+    return render_template(
+        'documentos/cadastro_rapido.html',
+        title='Cadastro Rápido',
+        tipos=tipos,
+    )
+
+
+# ── Importar Matriz de Correlação ──────────────────────────────────────────────
+
+# ── Ordenação por tipo (ordem canônica do SGQ) ────────────────────────────────
+_ORDEM_TIPO = [TipoDocumento.MQ, TipoDocumento.PA, TipoDocumento.PT,
+               TipoDocumento.IT, TipoDocumento.FOR_ADM, TipoDocumento.FOR_TEC]
+
+
+def _order_by_tipo_codigo():
+    """Return SQLAlchemy order clauses: tipo (canonical order) then codigo."""
+    tipo_case = case(
+        {t: i for i, t in enumerate(_ORDEM_TIPO)},
+        value=Documento.tipo_documento,
+        else_=len(_ORDEM_TIPO),
+    )
+    return tipo_case, Documento.codigo
+
+
+# Regex que reconhece códigos de documento como FOR ADM 01, FOR-ADM-01, PA-01, PA 01, etc.
+_RE_CODIGO_DOC = re.compile(
+    r'\b(?:FOR[-\s]+(?:ADM|TEC)|PA|PT|IT|MQ)[-\s]*\d+\b',
+    re.IGNORECASE,
+)
+
+
+def _split_codigos(texto: str) -> list:
+    """Split text into individual document codes.
+
+    Handles: comma/semicolon/newline separators AND space-separated codes
+    within a single cell (e.g. 'FOR ADM 05 FOR ADM 44 FOR ADM 47').
+    """
+    if not texto:
+        return []
+    # First check if the text contains multiple recognizable codes
+    encontrados = _RE_CODIGO_DOC.findall(texto)
+    if len(encontrados) > 1:
+        # Multiple codes packed in one string — use regex matches directly
+        return [c.strip() for c in encontrados if c.strip()]
+    # Fall back to standard separator split
+    return [p.strip() for p in re.split(r'[,\n;/]+', texto) if p.strip()]
+
+
+def _parsear_tabela_matriz(tabela: str) -> list:
+    """Parse a tab-separated table paste into a list of row dicts."""
+    SKIP_VALS = {'não aplicável', 'nao aplicavel', 'n/a', '-', '—', '–', '', 'não  aplicável'}
+    HEADER_STARTERS = {'norma', 'iso', 'nit diois', 'requisito', 'procedimento',
+                       'formulário', 'formulario', 'mq'}
+
+    linhas = []
+    for linha_raw in tabela.splitlines():
+        linha_raw = linha_raw.strip()
+        if not linha_raw:
+            continue
+        cols = [c.strip().replace('\xa0', ' ') for c in linha_raw.split('\t')]
+        if len(cols) < 4:
+            continue
+
+        primeiro = cols[0].lower().strip().replace('\xa0', ' ')
+        if any(primeiro.startswith(h) for h in HEADER_STARTERS):
+            continue
+
+        def norm(v):
+            cleaned = v.strip().replace('\xa0', ' ')
+            return '' if cleaned.lower() in SKIP_VALS else cleaned
+
+        norma    = norm(cols[0]) if len(cols) > 0 else ''
+        nit019   = norm(cols[1]) if len(cols) > 1 else ''
+        nit008   = norm(cols[2]) if len(cols) > 2 else ''
+        mq_val   = norm(cols[3]) if len(cols) > 3 else ''
+        descricao = cols[4].strip() if len(cols) > 4 else ''
+        procs    = norm(cols[5]) if len(cols) > 5 else ''
+        # Collect formulário from col[6] plus any extra columns (col[7]+)
+        form_parts = []
+        for i in range(6, len(cols)):
+            v = norm(cols[i])
+            if v:
+                form_parts.append(v)
+        form_col = ' '.join(form_parts)
+
+        if not any([norma, nit019, nit008, mq_val]):
+            continue
+
+        linhas.append({
+            'norma_17020': norma,
+            'nit_diois_019': nit019,
+            'nit_diois_008': nit008,
+            'mq': mq_val,
+            'descricao': descricao,
+            'procedimentos': procs,
+            'formulario': form_col,
+        })
+    return linhas
+
+
+def _criar_mc_direto(linha: dict, formularios: list) -> None:
+    """Insert a MatrizCorrelacao row directly (no associated document)."""
+    mc = MatrizCorrelacao(
+        norma_17020=linha['norma_17020'] or None,
+        nit_diois_019=linha['nit_diois_019'] or None,
+        nit_diois_008=linha['nit_diois_008'] or None,
+        mq=linha['mq'] or None,
+        requisito=linha['mq'] or linha['norma_17020'] or '—',
+        descricao_requisito=linha['descricao'] or None,
+        formularios=', '.join(formularios) if formularios else None,
+    )
+    db.session.add(mc)
+
+
+def _importar_linhas_matriz(linhas: list) -> dict:
+    """
+    For each parsed row:
+    - procedimentos has a valid doc code → update that doc's matriz_correlacao_json
+    - otherwise → insert a MatrizCorrelacao entry directly
+    Returns stats dict.
+    """
+    doc_cache: dict = {}       # UPPER_CODE → Documento or None
+    doc_rows: dict  = {}       # doc.id → {'doc': Documento, 'rows': list}
+    nao_encontrados: list = []
+    diretos = 0
+
+    for linha in linhas:
+        formularios = _split_codigos(linha['formulario'])
+        proc_codes  = _split_codigos(linha['procedimentos'])
+
+        row_data = {
+            'norma_17020': linha['norma_17020'],
+            'nit_diois_019': linha['nit_diois_019'],
+            'nit_diois_008': linha['nit_diois_008'],
+            'mq': linha['mq'],
+            'requisito': linha['mq'] or linha['norma_17020'] or '',
+            'formularios': formularios,
+        }
+
+        if proc_codes:
+            for code in proc_codes:
+                code_up = code.upper()
+                if code_up not in doc_cache:
+                    doc_cache[code_up] = Documento.query.filter(
+                        db.func.upper(Documento.codigo) == code_up,
+                        Documento.ativo == True,
+                    ).first()
+
+                doc = doc_cache[code_up]
+                if doc:
+                    if doc.id not in doc_rows:
+                        existing = []
+                        if doc.matriz_correlacao_json:
+                            try:
+                                existing = json.loads(doc.matriz_correlacao_json)
+                            except Exception:
+                                existing = []
+                        doc_rows[doc.id] = {'doc': doc, 'rows': list(existing)}
+                    doc_rows[doc.id]['rows'].append(row_data)
+                else:
+                    if code_up not in nao_encontrados:
+                        nao_encontrados.append(code_up)
+                    _criar_mc_direto(linha, formularios)
+                    diretos += 1
+        else:
+            _criar_mc_direto(linha, formularios)
+            diretos += 1
+
+    atualizados = 0
+    for info in doc_rows.values():
+        doc = info['doc']
+        doc.matriz_correlacao_json = json.dumps(info['rows'], ensure_ascii=False)
+        doc.requisito_relacionado = _resumo_requisitos_matriz(doc.matriz_correlacao_json)
+        doc.atualizado_em = agora_brasilia()
+        atualizados += 1
+
+    db.session.commit()
+    return {
+        'atualizados': atualizados,
+        'diretos': diretos,
+        'nao_encontrados': nao_encontrados,
+    }
+
+
+@documentos.route('/importar-matriz', methods=['GET', 'POST'])
+@login_required
+@bloquear_auditor
+def importar_matriz():
+    """Paste a tab-separated matrix table and import it into the correlation matrix."""
+    if not current_user.pode_editar_documentos():
+        abort(403)
+
+    _ensure_documento_matriz_schema()
+    _ensure_matriz_correlacao_schema()
+
+    tabela = ''
+    linhas_parsed = []
+    preview = False
+
+    if request.method == 'POST':
+        tabela = request.form.get('tabela', '')
+        acao = request.form.get('acao', 'preview')
+        linhas_parsed = _parsear_tabela_matriz(tabela)
+
+        if acao == 'importar' and linhas_parsed:
+            resultado = _importar_linhas_matriz(linhas_parsed)
+            flash(
+                f'Importação concluída: {resultado["atualizados"]} documento(s) atualizado(s), '
+                f'{resultado["diretos"]} linha(s) sem procedimento registrada(s) diretamente.',
+                'success',
+            )
+            if resultado['nao_encontrados']:
+                flash(
+                    'Procedimentos não encontrados no banco (registrados como entradas avulsas): '
+                    + ', '.join(resultado['nao_encontrados']),
+                    'warning',
+                )
+            return redirect(url_for('documentos.importar_matriz'))
+        else:
+            preview = True
+
+    return render_template(
+        'documentos/importar_matriz.html',
+        title='Importar Matriz de Correlação',
+        tabela=tabela,
+        linhas=linhas_parsed,
+        preview=preview,
+    )
+
+
 # ── Lista Mestra ───────────────────────────────────────────────────────────────
 
 @documentos.route('/lista-mestra', methods=['GET'])
 @login_required
 def lista_mestra():
-    # Show all documents that have a published PDF regardless of current
-    # workflow state (a doc "Em revisão" still has its old Vigente PDF valid).
+    # Show all documents that are Vigente (or Em revisão keeping old PDF valid)
+    # regardless of whether their PDF is stored or generated on-demand (online editor).
     _excluidos = [
         StatusDocumento.RASCUNHO,
         StatusDocumento.OBSOLETO,
         StatusDocumento.CANCELADO,
     ]
+    from sqlalchemy import or_
     docs = (
         Documento.query
         .filter(
             Documento.ativo == True,
-            Documento.caminho_pdf_vigente.isnot(None),
             Documento.status.notin_(_excluidos),
+            or_(
+                Documento.caminho_pdf_vigente.isnot(None),
+                Documento.content_html.isnot(None),
+            ),
         )
-        .order_by(Documento.tipo_documento, Documento.codigo)
+        .order_by(*_order_by_tipo_codigo())
         .all()
     )
     cfg = ListaMestraConfig.get()
@@ -708,7 +1004,7 @@ def exportar_lista_mestra(formato):
     docs = (
         Documento.query
         .filter_by(status=StatusDocumento.VIGENTE, ativo=True)
-        .order_by(Documento.tipo_documento, Documento.codigo)
+        .order_by(*_order_by_tipo_codigo())
         .all()
     )
     docs_externos_exp = (
@@ -923,6 +1219,8 @@ def detalhe(id):
         pode_publicar, doc.caminho_pdf_vigente, bool(doc.content_html),
     )
 
+    revisor_global = Usuario.revisor_padrao_ativo()
+
     return render_template(
         'documentos/detalhe.html',
         title=f'{doc.codigo} – {doc.titulo}',
@@ -930,6 +1228,7 @@ def detalhe(id):
         historico=historico,
         revisoes=revisoes,
         revisao_ativa=revisao_ativa,
+        revisor_global=revisor_global,
         publicar_form=publicar_form,
         abrir_revisao_form=abrir_revisao_form,
         enviar_aprovacao_form=None,
@@ -1214,20 +1513,16 @@ def publicar_vigente(id):
     if form.validate_on_submit():
         agora = agora_brasilia()
 
-        # Generate PDF from online content or move staged uploaded PDF
-        if doc.content_mode == 'online_editor' and doc.content_html:
-            from app.utils.html_pdf import gerar_pdf_de_html, metadata_from_documento
-            meta = metadata_from_documento(doc)
-            meta['status'] = StatusDocumento.VIGENTE
-            meta['historico_revisoes'] = _build_historico_revisoes(doc)
-            nome_pdf_out = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
-            caminho_pdf_out = caminho_vigente_pdf(nome_pdf_out)
-            ok = gerar_pdf_de_html(doc.content_html, meta, caminho_pdf_out)
-            if ok:
-                doc.caminho_pdf_vigente = nome_pdf_out
-            else:
-                flash('Aviso: não foi possível gerar o PDF automaticamente.', 'warning')
-        elif doc.content_mode == 'uploaded_file':
+        # Set approval fields FIRST so they are available for PDF metadata
+        doc.aprovado_por_id = current_user.id
+        doc.data_aprovacao = agora
+        doc.data_publicacao = agora
+        doc.status = StatusDocumento.VIGENTE
+        doc.atualizado_em = agora
+
+        # For online_editor: PDF is generated on-demand via the imprimir page.
+        # For uploaded_file: move the staged PDF to the vigentes directory.
+        if doc.content_mode == 'uploaded_file':
             # Move staged PDF from EM_REVISAO_DIR to VIGENTES_PDF_DIR
             nome_pdf_out = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
             src = caminho_em_revisao(nome_pdf_out)
@@ -1241,13 +1536,6 @@ def publicar_vigente(id):
             else:
                 flash('Arquivo PDF enviado não encontrado. Reenvie o PDF e tente novamente.', 'danger')
                 return redirect(url_for('documentos.detalhe', id=id))
-
-        # Auto-set approval user and timestamps
-        doc.aprovado_por_id = current_user.id
-        doc.data_aprovacao = agora
-        doc.data_publicacao = agora
-        doc.status = StatusDocumento.VIGENTE
-        doc.atualizado_em = agora
 
         registrar_evento(
             doc.id, current_user.id,
@@ -1266,6 +1554,11 @@ def publicar_vigente(id):
             'A Lista Mestra foi atualizada automaticamente.',
             'success',
         )
+
+        # Se for PT, cria alerta no dashboard + flag para modal na tela
+        if doc.codigo and doc.codigo.upper().startswith('PT'):
+            _criar_alerta_pt(doc.codigo)
+
     else:
         # Provide clearer feedback when validation fails or data missing
         if form.errors:
@@ -1284,6 +1577,49 @@ def publicar_vigente(id):
 
 
 # ── File downloads ─────────────────────────────────────────────────────────────
+
+@documentos.route('/<int:id>/regenerar-pdf', methods=['POST'])
+@login_required
+def regenerar_pdf(id):
+    """Re-gera o PDF vigente a partir do conteúdo online (editor). Útil quando o
+    arquivo está corrompido, ausente ou precisa ser atualizado após correção de CSS."""
+    if not current_user.pode_aprovar():
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    if doc.status != StatusDocumento.VIGENTE:
+        flash('Só é possível regenerar o PDF de documentos Vigentes.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    if doc.content_mode != 'online_editor' or not doc.content_html:
+        flash('Este documento não possui conteúdo no editor online para regenerar o PDF.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    from app.utils.html_pdf import gerar_pdf_de_html, metadata_from_documento
+    meta = metadata_from_documento(doc)
+    meta['status'] = StatusDocumento.VIGENTE
+    meta['historico_revisoes'] = _build_historico_revisoes(doc)
+
+    nome_pdf_out = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
+    caminho_pdf_out = caminho_vigente_pdf(nome_pdf_out)
+
+    ok = gerar_pdf_de_html(doc.content_html, meta, caminho_pdf_out)
+    if ok:
+        doc.caminho_pdf_vigente = nome_pdf_out
+        doc.atualizado_em = agora_brasilia()
+        registrar_evento(
+            doc.id, current_user.id,
+            AcaoEvento.PUBLICADO_VIGENTE,
+            'PDF regenerado manualmente.',
+        )
+        db.session.commit()
+        flash(f'PDF do {doc.codigo} regenerado com sucesso!', 'success')
+    else:
+        flash('Falha ao regenerar o PDF. Verifique o log do servidor.', 'danger')
+
+    return redirect(url_for('documentos.detalhe', id=id))
+
 
 @documentos.route('/<int:id>/pdf', methods=['GET'])
 @login_required
@@ -1650,22 +1986,9 @@ def aprovar_revisao(id, rev_id):
     pdf_gerado = False
     nome_pdf_novo = nome_pdf_vigente(doc.codigo, revisao.numero_revisao, doc.titulo)
 
+    # For online_editor: no PDF stored — generated on-demand via imprimir page.
     if revisao.content_mode == 'online_editor' and revisao.content_html:
-        from app.utils.html_pdf import gerar_pdf_de_html, metadata_from_revisao
-        meta = metadata_from_revisao(doc, revisao)
-        meta['status'] = StatusDocumento.VIGENTE
-        meta['historico_revisoes'] = _build_historico_revisoes(doc)
-        caminho_pdf_out = os.path.join(vigentes_dir, nome_pdf_novo)
-        ok = gerar_pdf_de_html(revisao.content_html, meta, caminho_pdf_out)
-        if ok:
-            pdf_gerado = True
-            registrar_evento(
-                doc.id, current_user.id,
-                AcaoEvento.PDF_GERADO,
-                f'PDF gerado a partir do editor online: {nome_pdf_novo}',
-            )
-        else:
-            flash('Aviso: não foi possível gerar o PDF automaticamente.', 'warning')
+        pdf_gerado = False  # PDF will be printed from browser when needed
     elif revisao.content_mode == 'uploaded_file' and revisao.arquivo_pdf:
         src = caminho_em_revisao(revisao.arquivo_pdf)
         dst = os.path.join(vigentes_dir, nome_pdf_novo)
@@ -1700,7 +2023,11 @@ def aprovar_revisao(id, rev_id):
     revisao_anterior_num = doc.revisao_atual
     doc.revisao_atual = revisao.numero_revisao
     doc.status = StatusDocumento.VIGENTE
-    doc.caminho_pdf_vigente = nome_pdf_novo if pdf_gerado else doc.caminho_pdf_vigente
+    # Only store PDF path for uploaded files; online content uses the imprimir page.
+    if pdf_gerado:
+        doc.caminho_pdf_vigente = nome_pdf_novo
+    elif revisao.content_mode == 'online_editor':
+        doc.caminho_pdf_vigente = None
     # Auto-set approval user
     doc.aprovado_por_id = current_user.id
     # Keep elaborado and revisado from revision (or maintain as-is if not already set)
@@ -1752,6 +2079,11 @@ def aprovar_revisao(id, rev_id):
         f'Revisão Rev{revisao.numero_revisao:02d} aprovada e publicada como Vigente!',
         'success',
     )
+
+    # Se for PT, cria alerta no dashboard + flag para modal
+    if doc.codigo and doc.codigo.upper().startswith('PT'):
+        _criar_alerta_pt(doc.codigo)
+
     return redirect(url_for('documentos.detalhe', id=id))
 
 
@@ -1833,27 +2165,9 @@ def publicar_revisao(id, rev_id):
     pdf_gerado = False
     nome_pdf_novo = nome_pdf_vigente(doc.codigo, revisao.numero_revisao, doc.titulo)
 
+    # For online_editor: no PDF stored — generated on-demand via imprimir page.
     if revisao.content_mode == 'online_editor' and revisao.content_html:
-        # Generate PDF from online HTML content
-        from app.utils.html_pdf import gerar_pdf_de_html, metadata_from_revisao
-        revisao.aprovado_por_id = revisao.aprovado_por_id  # already set
-        meta = metadata_from_revisao(doc, revisao)
-        meta['status'] = StatusDocumento.VIGENTE
-        meta['historico_revisoes'] = _build_historico_revisoes(doc)
-        caminho_pdf_out = os.path.join(vigentes_dir, nome_pdf_novo)
-        ok = gerar_pdf_de_html(revisao.content_html, meta, caminho_pdf_out)
-        if ok:
-            pdf_gerado = True
-            registrar_evento(
-                doc.id, current_user.id,
-                AcaoEvento.PDF_GERADO,
-                f'PDF gerado a partir do editor online: {nome_pdf_novo}',
-            )
-        else:
-            flash(
-                'Aviso: não foi possível gerar o PDF automaticamente a partir do conteúdo online.',
-                'warning',
-            )
+        pdf_gerado = False  # PDF will be printed from browser when needed
     elif revisao.content_mode == 'uploaded_file' and revisao.arquivo_pdf:
         src = caminho_em_revisao(revisao.arquivo_pdf)
         dst = os.path.join(vigentes_dir, nome_pdf_novo)
@@ -1895,7 +2209,11 @@ def publicar_revisao(id, rev_id):
     revisao_anterior_num = doc.revisao_atual
     doc.revisao_atual = revisao.numero_revisao
     doc.status = StatusDocumento.VIGENTE
-    doc.caminho_pdf_vigente = nome_pdf_novo if pdf_gerado else doc.caminho_pdf_vigente
+    # Only store PDF path for uploaded files; online content uses the imprimir page.
+    if pdf_gerado:
+        doc.caminho_pdf_vigente = nome_pdf_novo
+    elif revisao.content_mode == 'online_editor':
+        doc.caminho_pdf_vigente = None
     doc.elaborado_por_id = revisao.elaborado_por_id
     doc.revisado_por_id = revisao.revisado_por_id
     doc.aprovado_por_id = revisao.aprovado_por_id
@@ -1939,7 +2257,30 @@ def publicar_revisao(id, rev_id):
         'A Lista Mestra foi atualizada.',
         'success',
     )
+
+    # Se for PT, cria alerta no dashboard + flag para modal
+    if doc.codigo and doc.codigo.upper().startswith('PT'):
+        _criar_alerta_pt(doc.codigo)
+
     return redirect(url_for('documentos.detalhe', id=id))
+
+
+# ── PT Alert helper ────────────────────────────────────────────────────────────
+
+def _criar_alerta_pt(codigo: str):
+    """Cria um alerta no dashboard + marca sessão para exibir modal na tela."""
+    from flask import session
+    from app.utils.datetime_utils import agora_brasilia
+
+    data_str = agora_brasilia().strftime('%d/%m/%Y')
+    mensagem = (
+        f'⚠️ O procedimento técnico {codigo} foi alterado em {data_str}. '
+        f'Necessário atualizar as revisões nas Ordens de Serviço.'
+    )
+    Alerta.criar(mensagem, tipo='warning', categoria='pt_alterado')
+    # Flag para exibir modal com OK na próxima renderização
+    session['pt_alerta_modal'] = codigo
+    session['pt_alerta_data'] = data_str
 
 
 # ── Revision history helper ────────────────────────────────────────────────────
@@ -2134,6 +2475,57 @@ def editor_revisao(id, rev_id):
     )
 
 
+@documentos.route('/<int:id>/imprimir', methods=['GET'])
+@login_required
+def imprimir_documento(id):
+    """Standalone print page — opens imprimir.html for browser Print → Save as PDF."""
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    content = doc.content_html
+    if not content:
+        flash('Não há conteúdo online para imprimir.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    return render_template(
+        'documentos/imprimir.html',
+        doc=doc,
+        revisao=None,
+        titulo=doc.titulo,
+        codigo=doc.codigo,
+        revisao_num=doc.revisao_atual,
+        status=doc.status,
+        content_html=content,
+        historico_revisoes=_build_historico_revisoes(doc),
+        revisor_global=Usuario.revisor_padrao_ativo(),
+    )
+
+
+@documentos.route('/<int:id>/revisoes/<int:rev_id>/imprimir', methods=['GET'])
+@login_required
+def imprimir_revisao(id, rev_id):
+    """Standalone print page for a revision."""
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+    revisao = RevisaoDocumento.query.filter_by(id=rev_id, documento_id=id).first_or_404()
+
+    content = revisao.content_html or doc.content_html
+    if not content:
+        flash('Não há conteúdo online para imprimir.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    return render_template(
+        'documentos/imprimir.html',
+        doc=doc,
+        revisao=revisao,
+        titulo=doc.titulo,
+        codigo=doc.codigo,
+        revisao_num=revisao.numero_revisao,
+        status=revisao.status,
+        content_html=content,
+        historico_revisoes=_build_historico_revisoes(doc, incluir_revisao=revisao),
+        revisor_global=Usuario.revisor_padrao_ativo(),
+    )
+
+
 @documentos.route('/<int:id>/preview-online', methods=['GET'])
 @login_required
 @bloquear_auditor
@@ -2178,6 +2570,7 @@ def preview_documento(id):
         pode_editar=current_user.pode_editar_documentos(),
         tem_aprovadores=current_user.pode_aprovar(),
         revisao_ativa=None,
+        revisor_global=Usuario.revisor_padrao_ativo(),
     )
 
 
@@ -2220,6 +2613,7 @@ def preview_revisao(id, rev_id):
         pode_editar=current_user.pode_editar_documentos(),
         tem_aprovadores=current_user.pode_aprovar(),
         revisao_ativa=revisao,
+        revisor_global=Usuario.revisor_padrao_ativo(),
     )
 
 

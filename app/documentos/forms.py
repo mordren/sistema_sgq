@@ -76,7 +76,7 @@ class PublicarVigenteForm(FlaskForm):
     motivo = TextAreaField(
         'Motivo / Descrição da publicação',
         validators=[
-            DataRequired(message='Informe o motivo da publicação.'),
+            Optional(),
             Length(max=1000),
         ],
     )
@@ -157,7 +157,7 @@ class ListaMestraConfigForm(FlaskForm):
     codigo = StringField(
         'Código do documento',
         validators=[DataRequired(message='Informe o código.'), Length(max=50)],
-        default='LM-01',
+        default='FOR ADM 05',
     )
     revisao_num = IntegerField(
         'Número da revisão',

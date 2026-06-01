@@ -100,13 +100,12 @@ _HTML_TEMPLATE = """\
     font-size: 11pt;
     font-weight: bold;
     text-align: center;
-    width: 28%;
+    width: 50mm;
   }}
   .doc-title-cell {{
     font-size: 13pt;
     font-weight: bold;
     text-align: center;
-    width: 72%;
   }}
   .meta-label {{ font-weight: bold; }}
   /* \u2500\u2500 Signatories \u2500\u2500 */
@@ -118,7 +117,7 @@ _HTML_TEMPLATE = """\
   .signatories td {{
     border: 1px solid #000;
     padding: 5px 8px;
-    width: 33.33%;
+    width: 60mm;
     font-size: 9pt;
   }}
   /* \u2500\u2500 Revision history \u2500\u2500 */
@@ -147,10 +146,10 @@ _HTML_TEMPLATE = """\
   }}
   /* \u2500\u2500 Content \u2500\u2500 */
   .content {{ margin-top: 8px; }}
-  .content h1 {{ font-size: 12pt; font-weight: bold; margin: 14px 0 6px; }}
-  .content h2 {{ font-size: 11pt; font-weight: bold; margin: 12px 0 5px; }}
-  .content h3 {{ font-size: 10pt; font-weight: bold; margin: 10px 0 4px; }}
-  .content p  {{ margin: 6px 0; }}
+  .content h1 {{ font-size: 12pt; font-weight: bold; margin: 12px 0 3px; line-height: 1.3; }}
+  .content h2 {{ font-size: 11pt; font-weight: bold; margin: 10px 0 3px; line-height: 1.3; }}
+  .content h3 {{ font-size: 10pt; font-weight: bold; margin: 8px 0 2px; line-height: 1.3; }}
+  .content p  {{ margin: 0 0 4pt 0; line-height: 1.5; }}
   .content ul, .content ol {{ margin: 6px 0 6px 20px; padding: 0; }}
   .content li {{ margin: 3px 0; }}
   .content table {{
@@ -321,6 +320,20 @@ def gerar_pdf_de_html(
         content_html=_content_for_pdf,
     )
 
+    # xhtml2pdf / reportlab does not support the CSS keyword 'currentcolor'.
+    # Replace it with black (#000000) everywhere in the final HTML before rendering.
+    pdf_html = pdf_html.replace('currentcolor', '#000000').replace('currentColor', '#000000')
+
+    # xhtml2pdf cannot handle <colgroup>/<col> elements — it sometimes resolves
+    # percentage widths to 0, causing "negative availWidth" crashes.
+    # Remove them entirely; xhtml2pdf will auto-layout table columns.
+    import re as _re
+    pdf_html = _re.sub(r'<colgroup[^>]*>.*?</colgroup>', '', pdf_html,
+                       flags=_re.DOTALL | _re.IGNORECASE)
+    # Also strip any residual width:0 on td/th (another source of the same crash).
+    pdf_html = _re.sub(r'\bwidth\s*:\s*0\s*(px|pt|em|rem|%)?', 'width: auto',
+                       pdf_html, flags=_re.IGNORECASE)
+
     try:
         with open(caminho_saida, 'wb') as f:
             result = pisa.CreatePDF(
@@ -329,8 +342,13 @@ def gerar_pdf_de_html(
                 encoding='utf-8',
             )
         if result.err:
-            log.error('xhtml2pdf reported errors: %s', result.err)
-            return False
+            # xhtml2pdf sets err for layout warnings (e.g. unsupported CSS) but
+            # the file is still written. Only treat it as a real failure if the
+            # output file is empty or missing.
+            if not os.path.exists(caminho_saida) or os.path.getsize(caminho_saida) == 0:
+                log.error('xhtml2pdf failed: err=%s, file empty or missing', result.err)
+                return False
+            log.warning('xhtml2pdf layout warnings (err=%s) — PDF still generated', result.err)
         return True
     except Exception as exc:
         log.exception('PDF generation failed: %s', exc)
@@ -434,8 +452,19 @@ def _inline_editor_images(html: str, imagens_dir: str) -> str:
     return ''.join(parser.out)
 
 
+def _revisor_global_nome() -> str:
+    """Return the name of the global default reviewer, or '—'."""
+    try:
+        from app.models.usuario import Usuario
+        r = Usuario.query.filter_by(revisor_padrao=True).first()
+        return r.nome if r else '—'
+    except Exception:
+        return '—'
+
+
 def metadata_from_documento(doc) -> dict:
     """Build a metadata dict from a Documento ORM object."""
+    revisado_por = getattr(doc, 'revisado_por', None)
     return {
         'titulo': doc.titulo,
         'codigo': doc.codigo,
@@ -443,13 +472,14 @@ def metadata_from_documento(doc) -> dict:
         'status': doc.status,
         'data_aprovacao': doc.data_aprovacao,
         'elaborado_por': _nome_usuario(getattr(doc, 'elaborado_por', None)),
-        'revisado_por': _nome_usuario(getattr(doc, 'revisado_por', None)),
+        'revisado_por': _nome_usuario(revisado_por) if revisado_por else _revisor_global_nome(),
         'aprovado_por': _nome_usuario(getattr(doc, 'aprovado_por', None)),
     }
 
 
 def metadata_from_revisao(doc, revisao) -> dict:
     """Build a metadata dict from a RevisaoDocumento + parent Documento."""
+    revisado_por = getattr(revisao, 'revisado_por', None) or getattr(doc, 'revisado_por', None)
     return {
         'titulo': doc.titulo,
         'codigo': doc.codigo,
@@ -457,10 +487,10 @@ def metadata_from_revisao(doc, revisao) -> dict:
         'status': revisao.status,
         'data_aprovacao': revisao.data_aprovacao,
         'elaborado_por': _nome_usuario(getattr(revisao, 'elaborado_por', None)),
-        'revisado_por': _nome_usuario(getattr(revisao, 'revisado_por', None)),
+        'revisado_por': _nome_usuario(revisado_por) if revisado_por else _revisor_global_nome(),
         'aprovado_por': _nome_usuario(getattr(revisao, 'aprovado_por', None)),
     }
-
+    
 
 
 def _safe_meta_for_header(metadata: dict) -> dict:
@@ -557,7 +587,7 @@ def _signature_text(metadata: dict) -> str:
         or 'Usuário não identificado'
     )
     return (
-        'O documento foi assinado digitalmente através do login no sistema SGQ '
+        'O documento foi aprovado e assinado digitalmente através do login no sistema SGQ '
         f'no dia {_format_signature_date(signed_at)} pelo {user}.'
     )
 

@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Importar Matriz de Correlação – SGQ{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-file-earmark-arrow-up me-2 text-primary"></i>Importar Matriz de Correlação
+    </h2>
+    <p class="text-muted small mb-0">Cole a tabela da norma (separada por Tab) para importar automaticamente para os documentos cadastrados.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('documentos.cadastro_rapido') }}" class="btn btn-outline-warning btn-sm">
+      <i class="bi bi-lightning-charge me-1"></i>Cadastro Rápido
+    </a>
+    <a href="{{ url_for('documentos.matriz_correlacao') }}" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-diagram-3 me-1"></i>Ver Matriz
+    </a>
+  </div>
+</div>
+
+<div class="alert alert-info small mb-4">
+  <strong><i class="bi bi-info-circle me-1"></i>Como usar:</strong>
+  <ol class="mb-0 mt-1 ps-3">
+    <li>Primeiro cadastre todos os documentos (PA-01, FOR ADM 01…) via <a href="{{ url_for('dona cumentos.cadastro_rapido') }}">Cadastro Rápido</a>.</li>
+    <li>Abra sua planilha de matriz e <strong>selecione e copie (Ctrl+C)</strong> a tabela inteira, incluindo o cabeçalho.</li>
+    <li>Cole aqui embaixo (Ctrl+V), clique em <strong>Pré-visualizar</strong> para conferir, depois em <strong>Importar</strong>.</li>
+  </ol>
+  <div class="mt-2">
+    <strong>Colunas esperadas (Tab-separadas):</strong>
+    <code class="d-block mt-1 small">NORMA 17020 | NIT DIOIS 019 | NIT DIOIS 008 | MQ | REQUISITO | PROCEDIMENTOS | FORMULÁRIO APLICÁVEL</code>
+    Células com <code>-</code> ou <code>Não aplicável</code> serão tratadas como vazias.
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-bottom fw-semibold small py-2">
+    <i class="bi bi-clipboard-data me-1"></i>Tabela (cole o conteúdo copiado da planilha)
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('documentos.importar_matriz') }}" novalidate>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="mb-3">
+        <textarea name="tabela" id="tabela-input" class="form-control font-monospace small"
+                  rows="12" placeholder="Cole aqui a tabela (Tab-separada)..."
+                  style="resize:vertical; min-height:180px;">{{ tabela }}</textarea>
+        <div class="form-text">Dica: selecione as células na planilha (Excel, LibreOffice, Google Sheets), copie e cole aqui.</div>
+      </div>
+
+      <div class="d-flex gap-2 flex-wrap">
+        <button type="submit" name="acao" value="preview" class="btn btn-outline-primary">
+          <i class="bi bi-eye me-1"></i>Pré-visualizar
+        </button>
+        {% if preview and linhas %}
+        <button type="submit" name="acao" value="importar" class="btn btn-success"
+                onclick="return confirm('Confirmar importação de {{ linhas|length }} linha(s) para o banco de dados?');">
+          <i class="bi bi-database-add me-1"></i>Importar {{ linhas|length }} linha(s)
+        </button>
+        {% endif %}
+        {% if tabela %}
+        <a href="{{ url_for('documentos.importar_matriz') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-x-circle me-1"></i>Limpar
+        </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if preview %}
+  {% if linhas %}
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-2">
+      <span class="fw-semibold small">
+        <i class="bi bi-table me-1"></i>Pré-visualização — <strong>{{ linhas|length }}</strong> linha(s) detectada(s)
+      </span>
+      <span class="badge bg-primary">Pronto para importar</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered table-hover align-middle mb-0 small">
+        <thead class="table-light">
+          <tr>
+            <th>Norma 17020</th>
+            <th>NIT DIOIS 019</th>
+            <th>NIT DIOIS 008</th>
+            <th>MQ</th>
+            <th>Descrição do Requisito</th>
+            <th>Procedimentos</th>
+            <th>Formulários</th>
+            <th class="text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for linha in linhas %}
+          <tr>
+            <td>{{ linha.norma_17020 or '—' }}</td>
+            <td>{{ linha.nit_diois_019 or '—' }}</td>
+            <td>{{ linha.nit_diois_008 or '—' }}</td>
+            <td>{{ linha.mq or '—' }}</td>
+            <td>{{ linha.descricao or '—' }}</td>
+            <td>
+              {% if linha.procedimentos %}
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ linha.procedimentos }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if linha.formulario %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle">{{ linha.formulario }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if linha.procedimentos %}
+                <i class="bi bi-arrow-right-circle-fill text-primary" title="Será salvo no documento {{ linha.procedimentos }}"></i>
+              {% else %}
+                <i class="bi bi-database-fill text-secondary" title="Sem procedimento — entrada direta na matriz"></i>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer bg-white py-2 small text-muted d-flex gap-3 flex-wrap">
+      <span><i class="bi bi-arrow-right-circle-fill text-primary me-1"></i>Será vinculado ao documento (via <code>matriz_correlacao_json</code>)</span>
+      <span><i class="bi bi-database-fill text-secondary me-1"></i>Entrada direta na matriz (sem procedimento)</span>
+    </div>
+  </div>
+
+  {# Summary by document #}
+  {% set docs_map = {} %}
+  {% for linha in linhas %}
+    {% if linha.procedimentos %}
+      {% if linha.procedimentos not in docs_map %}
+        {% set _ = docs_map.update({linha.procedimentos: 0}) %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="alert alert-secondary small">
+    <strong>Procedimentos referenciados na tabela:</strong>
+    {% set procs = linhas | selectattr('procedimentos') | map(attribute='procedimentos') | list | unique | list %}
+    {% if procs %}
+      {% for p in procs %}<span class="badge bg-primary me-1">{{ p }}</span>{% endfor %}
+    {% else %}
+      <span class="text-muted">Nenhum</span>
+    {% endif %}
+    <br>
+    <strong class="mt-1 d-block">Formulários referenciados:</strong>
+    {% set forms = linhas | selectattr('formulario') | map(attribute='formulario') | list | unique | list %}
+    {% if forms %}
+      {% for f in forms %}<span class="badge bg-success me-1">{{ f }}</span>{% endfor %}
+    {% else %}
+      <span class="text-muted">Nenhum</span>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    Nenhuma linha válida detectada. Verifique se a tabela está corretamente colada (separada por Tab) e que não é apenas o cabeçalho.
+  </div>
+  {% endif %}
+{% endif %}
+
+{% endblock %}

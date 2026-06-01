@@ -9,6 +9,7 @@ from app.models.distribuicao import DistribuicaoDocumento, Area, TipoDistribuica
 from app.models.documento_externo import DocumentoExterno
 from app.models.matriz_correlacao import MatrizCorrelacao
 from app.models.lista_mestra_config import ListaMestraConfig
+from app.models.alerta import Alerta
 
 __all__ = [
     'Usuario', 'Perfil',
@@ -19,4 +20,5 @@ __all__ = [
     'DocumentoExterno',
     'MatrizCorrelacao',
     'ListaMestraConfig',
+    'Alerta',
 ]

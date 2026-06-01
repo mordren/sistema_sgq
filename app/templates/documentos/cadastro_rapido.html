@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block title %}Cadastro Rápido – SGQ{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-lightning-charge me-2 text-warning"></i>Cadastro Rápido de Documentos
+    </h2>
+    <p class="text-muted small mb-0">Registre múltiplos documentos existentes de uma vez. Serão criados com status <strong>Rascunho</strong> para edição antes de publicar.</p>
+  </div>
+  <a href="{{ url_for('documentos.lista') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Voltar à lista
+  </a>
+</div>
+
+<div class="alert alert-info small">
+  <i class="bi bi-info-circle me-1"></i>
+  Use esta página para registrar rapidamente PA, FOR ADM e outros documentos que já existem fisicamente.
+  Os documentos são criados como <strong>Rascunho</strong> — edite e publique individualmente quando necessário.
+  Após publicar, ficam disponíveis para referência na <strong>Matriz de Correlação</strong>.
+  Para importar a matriz completa, acesse <a href="{{ url_for('documentos.importar_matriz') }}">Importar Matriz</a>.
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold small">
+      <i class="bi bi-table me-1"></i>Documentos para cadastrar
+    </span>
+    <button type="button" class="btn btn-primary btn-sm" id="btn-add-row">
+      <i class="bi bi-plus-lg me-1"></i>Adicionar linha
+    </button>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle mb-0" id="tabela-docs">
+      <thead class="table-light">
+        <tr>
+          <th class="text-center" style="width:2.5rem;">#</th>
+          <th style="width:14rem;">Tipo</th>
+          <th style="width:9rem;">Código</th>
+          <th>Título / Nome</th>
+          <th style="width:6rem;">Revisão</th>
+          <th style="width:3rem;"></th>
+        </tr>
+      </thead>
+      <tbody id="linhas-docs">
+        <!-- rows inserted by JS -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="d-flex gap-2 align-items-center flex-wrap">
+  <button type="button" class="btn btn-success" id="btn-salvar">
+    <i class="bi bi-floppy me-1"></i>Salvar no banco de dados
+  </button>
+  <button type="button" class="btn btn-outline-danger btn-sm" id="btn-limpar">
+    <i class="bi bi-trash me-1"></i>Limpar tudo
+  </button>
+  <span class="text-muted small ms-2" id="status-linhas">0 linha(s)</span>
+</div>
+
+<!-- Result alert -->
+<div id="resultado-alerta" class="mt-3" style="display:none;"></div>
+
+<!-- Row template -->
+<template id="row-tpl">
+  <tr class="doc-row">
+    <td class="text-center text-muted small seq-num">1</td>
+    <td>
+      <select class="form-select form-select-sm campo-tipo" required>
+        {% for valor, label in tipos %}
+        <option value="{{ valor }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </td>
+    <td>
+      <input type="text" class="form-control form-control-sm campo-codigo text-uppercase"
+             placeholder="PA-01" maxlength="50" required>
+    </td>
+    <td>
+      <input type="text" class="form-control form-control-sm campo-titulo"
+             placeholder="Imparcialidade e Independência" maxlength="200" required>
+    </td>
+    <td>
+      <input type="number" class="form-control form-control-sm campo-revisao text-center"
+             value="0" min="0" max="99" style="width:5rem;">
+    </td>
+    <td class="text-center">
+      <button type="button" class="btn btn-sm btn-outline-danger btn-remover" title="Remover linha">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </td>
+  </tr>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  const tbody     = document.getElementById('linhas-docs');
+  const tpl       = document.getElementById('row-tpl');
+  const btnAdd    = document.getElementById('btn-add-row');
+  const btnSalvar = document.getElementById('btn-salvar');
+  const btnLimpar = document.getElementById('btn-limpar');
+  const statusEl  = document.getElementById('status-linhas');
+  const alertEl   = document.getElementById('resultado-alerta');
+
+  function atualizarSeq() {
+    tbody.querySelectorAll('.doc-row').forEach(function (tr, i) {
+      tr.querySelector('.seq-num').textContent = i + 1;
+    });
+    const n = tbody.querySelectorAll('.doc-row').length;
+    statusEl.textContent = n + ' linha(s)';
+  }
+
+  function addRow(tipo, codigo, titulo, revisao) {
+    const clone = tpl.content.cloneNode(true);
+    const tr = clone.querySelector('tr');
+
+    if (tipo)    tr.querySelector('.campo-tipo').value    = tipo;
+    if (codigo)  tr.querySelector('.campo-codigo').value  = codigo.toUpperCase();
+    if (titulo)  tr.querySelector('.campo-titulo').value  = titulo;
+    if (revisao !== undefined) tr.querySelector('.campo-revisao').value = revisao;
+
+    tr.querySelector('.btn-remover').addEventListener('click', function () {
+      tr.remove();
+      atualizarSeq();
+    });
+
+    // Auto-uppercase código
+    tr.querySelector('.campo-codigo').addEventListener('input', function () {
+      this.value = this.value.toUpperCase();
+    });
+
+    tbody.appendChild(clone);
+    atualizarSeq();
+    return tr;
+  }
+
+  function coletarDados() {
+    const rows = [];
+    tbody.querySelectorAll('.doc-row').forEach(function (tr) {
+      rows.push({
+        tipo:    tr.querySelector('.campo-tipo').value,
+        codigo:  tr.querySelector('.campo-codigo').value.trim(),
+        titulo:  tr.querySelector('.campo-titulo').value.trim(),
+        revisao: parseInt(tr.querySelector('.campo-revisao').value || '0', 10),
+      });
+    });
+    return rows;
+  }
+
+  btnAdd.addEventListener('click', function () {
+    const tr = addRow();
+    tr.querySelector('.campo-codigo').focus();
+  });
+
+  btnLimpar.addEventListener('click', function () {
+    if (!confirm('Remover todas as linhas?')) return;
+    tbody.innerHTML = '';
+    atualizarSeq();
+    alertEl.style.display = 'none';
+  });
+
+  btnSalvar.addEventListener('click', async function () {
+    const dados = coletarDados().filter(function (d) {
+      return d.codigo && d.titulo && d.tipo;
+    });
+
+    if (dados.length === 0) {
+      showAlert('warning', 'Nenhuma linha válida para salvar. Preencha Tipo, Código e Título.');
+      return;
+    }
+
+    btnSalvar.disabled = true;
+    btnSalvar.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando…';
+
+    try {
+      const resp = await fetch('{{ url_for("documentos.cadastro_rapido") }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCsrfToken(),
+        },
+        body: JSON.stringify(dados),
+      });
+
+      if (!resp.ok) throw new Error('Erro HTTP ' + resp.status);
+      const res = await resp.json();
+
+      let html = '';
+      if (res.criados > 0) {
+        html += '<div class="alert alert-success mb-2"><i class="bi bi-check-circle me-1"></i>'
+              + '<strong>' + res.criados + '</strong> documento(s) cadastrado(s) com sucesso!</div>';
+        // Remove saved rows from table
+        tbody.querySelectorAll('.doc-row').forEach(function (tr) {
+          const cod = tr.querySelector('.campo-codigo').value.trim().toUpperCase();
+          if (!res.duplicados.includes(cod) && !res.erros.find(e => e.startsWith(cod + ':'))) {
+            tr.remove();
+          }
+        });
+        atualizarSeq();
+      }
+      if (res.duplicados.length > 0) {
+        html += '<div class="alert alert-warning mb-2"><i class="bi bi-exclamation-triangle me-1"></i>'
+              + '<strong>Já existentes (ignorados):</strong> ' + res.duplicados.join(', ') + '</div>';
+      }
+      if (res.erros.length > 0) {
+        html += '<div class="alert alert-danger mb-2"><i class="bi bi-x-circle me-1"></i>'
+              + '<strong>Erros:</strong> ' + res.erros.join('; ') + '</div>';
+      }
+      showAlertHtml(html || '<div class="alert alert-info">Nenhuma alteração realizada.</div>');
+    } catch (err) {
+      showAlert('danger', 'Erro ao comunicar com o servidor: ' + err.message);
+    } finally {
+      btnSalvar.disabled = false;
+      btnSalvar.innerHTML = '<i class="bi bi-floppy me-1"></i>Salvar no banco de dados';
+    }
+  });
+
+  function showAlert(type, msg) {
+    alertEl.innerHTML = '<div class="alert alert-' + type + '">' + msg + '</div>';
+    alertEl.style.display = '';
+    alertEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function showAlertHtml(html) {
+    alertEl.innerHTML = html;
+    alertEl.style.display = '';
+    alertEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Support paste from spreadsheet (Excel/Sheets): Tab-separated rows
+  document.addEventListener('paste', function (e) {
+    const active = document.activeElement;
+    if (!active || !active.closest('#tabela-docs')) return;
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text.includes('\t')) return;
+    e.preventDefault();
+
+    const TIPO_MAP = {
+      'MQ': 'MQ', 'PA': 'PA', 'PT': 'PT', 'IT': 'IT',
+      'FOR ADM': 'FOR ADM', 'FOR TEC': 'FOR TEC',
+    };
+
+    text.trim().split('\n').forEach(function (linha) {
+      const cols = linha.split('\t');
+      if (cols.length < 2) return;
+      const tipo    = TIPO_MAP[cols[0].trim().toUpperCase()] || cols[0].trim();
+      const codigo  = (cols[1] || '').trim();
+      const titulo  = (cols[2] || '').trim();
+      const revisao = parseInt(cols[3] || '0', 10) || 0;
+      if (tipo && codigo) addRow(tipo, codigo, titulo, revisao);
+    });
+  });
+
+  // Start with 3 blank rows
+  addRow(); addRow(); addRow();
+})();
+</script>
+{% endblock %}

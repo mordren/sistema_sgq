@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ codigo }} – Rev{{ '%02d' % revisao_num }} – {{ titulo }}</title>
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    /* ── Screen: toolbar ── */
+    #print-toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 999;
+      background: #343a40;
+      color: #fff;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    }
+    #print-toolbar span { flex: 1; }
+    #print-toolbar button {
+      border: none;
+      border-radius: 4px;
+      padding: 5px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .btn-print  { background: #198754; color: #fff; }
+    .btn-close2 { background: #6c757d; color: #fff; }
+    .hint {
+      font-size: 12px;
+      color: #ccc;
+    }
+
+    /* ── Page wrapper (screen: simulates A4) ── */
+    body {
+      background: #888;
+      margin: 0;
+      padding-top: 50px; /* space for toolbar */
+    }
+    .page-wrapper {
+      max-width: 210mm;
+      min-height: 297mm;
+      margin: 20px auto 40px;
+      background: #fff;
+      padding: 18mm 15mm 15mm 15mm;
+      box-shadow: 0 0 20px rgba(0,0,0,.4);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10.5pt;
+      color: #000;
+      line-height: 1.5;
+    }
+
+    /* ── Document header table ── */
+    .doc-header {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+    }
+    .doc-header td {
+      border: 1px solid #000;
+      padding: 5px 8px;
+      vertical-align: middle;
+    }
+    .org-logo-cell {
+      width: 22%;
+      text-align: center;
+    }
+    .org-logo-cell img {
+      max-width: 100%;
+      max-height: 70px;
+      object-fit: contain;
+    }
+    .doc-title-cell {
+      font-size: 13pt;
+      font-weight: bold;
+      text-align: center;
+    }
+    .meta-label { font-weight: bold; }
+
+    /* ── Signatories ── */
+    .signatories {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+    }
+    .signatories td {
+      border: 1px solid #000;
+      padding: 5px 8px;
+      width: 33.33%;
+      font-size: 9pt;
+      vertical-align: top;
+    }
+
+    /* ── Revision history ── */
+    .rev-section-title {
+      font-weight: bold;
+      font-size: 9pt;
+      margin: 10px 0 3px;
+    }
+    .rev-history {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+      font-size: 8.5pt;
+    }
+    .rev-history th {
+      background: #d0d0d0;
+      border: 1px solid #000;
+      padding: 3px 5px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .rev-history td {
+      border: 1px solid #000;
+      padding: 3px 5px;
+      vertical-align: top;
+    }
+
+    /* ── Document content ── */
+    .content h1 { font-size: 12pt; font-weight: bold; margin: 12px 0 3px; line-height: 1.3; }
+    .content h2 { font-size: 11pt; font-weight: bold; margin: 10px 0 3px; line-height: 1.3; }
+    .content h3 { font-size: 10pt; font-weight: bold; margin:  8px 0 2px; line-height: 1.3; }
+    .content h4 { font-size: 10pt; font-weight: bold; margin:  6px 0 2px; line-height: 1.3; }
+    .content p  { margin: 0 0 4pt 0; line-height: 1.5; }
+    .content ul, .content ol { margin: 4pt 0 4pt 20pt; padding: 0; }
+    .content li { margin: 2pt 0; line-height: 1.5; }
+    .content blockquote {
+      border-left: 3px solid #ccc;
+      margin: 4pt 0 4pt 10pt;
+      padding-left: 8pt;
+      color: #444;
+    }
+
+    /* ── Tables inside content ── */
+    .content table {
+      border-collapse: collapse;
+      width: 100%;
+      table-layout: auto;
+      margin: 8px 0;
+      font-size: 9.5pt;
+      word-wrap: break-word;
+    }
+    .content table td,
+    .content table th {
+      border: 1px solid #555;
+      padding: 4px 6px;
+      vertical-align: top;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    .content table th {
+      background: #e8e8e8;
+      font-weight: bold;
+      text-align: left;
+    }
+    /* Remove colgroup (can cause layout issues) */
+    colgroup, col { display: none; }
+
+    /* ── Print-only styles ── */
+    @media print {
+      #print-toolbar { display: none !important; }
+      body {
+        background: #fff !important;
+        padding-top: 0 !important;
+        margin: 0 !important;
+      }
+      .page-wrapper {
+        max-width: none;
+        min-height: 0;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      /* Avoid breaking tables across pages when possible */
+      table { page-break-inside: auto; }
+      tr    { page-break-inside: avoid; page-break-after: auto; }
+      thead { display: table-header-group; }
+      .content table td,
+      .content table th {
+        border: 1px solid #333 !important;
+      }
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 18mm 15mm 15mm 15mm;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Screen-only toolbar -->
+  <div id="print-toolbar">
+    <span>
+      <strong>{{ codigo }}</strong> — {{ titulo }} — Rev{{ '%02d' % revisao_num }}
+    </span>
+    <span class="hint">Ctrl+P → "Salvar como PDF" para exportar</span>
+    <button class="btn-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+    <button class="btn-close2" onclick="window.close()">✕ Fechar</button>
+  </div>
+
+  <!-- A4 document page -->
+  <div class="page-wrapper">
+
+    <!-- Header table -->
+    <table class="doc-header">
+      <tr>
+        <td class="org-logo-cell" rowspan="3">
+          <img src="{{ url_for('static', filename='images/logo.png') }}"
+               alt="Logo"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+          <span style="display:none;font-size:10pt;font-weight:bold;">CSV Cascavel</span>
+        </td>
+        <td class="doc-title-cell" colspan="2">{{ titulo }}</td>
+      </tr>
+      <tr>
+        <td><span class="meta-label">Código:</span> {{ codigo }}</td>
+        <td><span class="meta-label">Revisão:</span> Rev{{ '%02d' % revisao_num }}</td>
+      </tr>
+      <tr>
+        <td>
+          <span class="meta-label">Data de Aprovação:</span>
+          {% if revisao and revisao.data_aprovacao %}
+            {{ revisao.data_aprovacao.strftime('%d/%m/%Y') }}
+          {% elif doc.data_aprovacao %}
+            {{ doc.data_aprovacao.strftime('%d/%m/%Y') }}
+          {% else %}—{% endif %}
+        </td>
+        <td><span class="meta-label">Status:</span> {{ status }}</td>
+      </tr>
+    </table>
+
+    <!-- Signatories -->
+    <table class="signatories">
+      <tr>
+        <td>
+          <span class="meta-label">Elaborado por:</span><br>
+          {% if revisao and revisao.elaborado_por %}
+            {{ revisao.elaborado_por.nome }}
+          {% elif doc.elaborado_por %}
+            {{ doc.elaborado_por.nome }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="meta-label">Revisado por:</span><br>
+          {% if revisao and revisao.revisado_por %}
+            {{ revisao.revisado_por.nome }}
+          {% elif doc.revisado_por %}
+            {{ doc.revisado_por.nome }}
+          {% elif revisor_global %}
+            {{ revisor_global.nome }}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="meta-label">Aprovado por:</span><br>
+          {% if revisao and revisao.aprovado_por %}
+            {{ revisao.aprovado_por.nome }}
+          {% elif doc.aprovado_por %}
+            {{ doc.aprovado_por.nome }}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+    </table>
+
+    <!-- Revision history -->
+    {% if historico_revisoes %}
+    <p class="rev-section-title">Histórico de Revisões</p>
+    <table class="rev-history">
+      <thead>
+        <tr>
+          <th style="width:8%">Rev</th>
+          <th style="width:12%">Data</th>
+          <th style="width:42%">Descrição das Alterações</th>
+          <th style="width:18%">Item(s) Alterado(s)</th>
+          <th style="width:20%">Elaborado por</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in historico_revisoes %}
+        <tr{% if h.get('em_andamento') %} style="background:#fff8e1;font-style:italic;"{% endif %}>
+          <td style="text-align:center">Rev{{ '%02d' % h.numero }}</td>
+          <td style="text-align:center">
+            {% if h.data %}{{ h.data.strftime('%d/%m/%Y') if h.data is not string else h.data }}{% else %}—{% endif %}
+          </td>
+          <td>{{ h.descricao or '—' }}</td>
+          <td style="text-align:center">{{ h.item or '—' }}</td>
+          <td style="text-align:center">{{ h.elaborado_por or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <!-- Document content -->
+    <div class="content">
+      {{ content_html | safe }}
+    </div>
+
+  </div>
+
+  <script>
+    // Running header for @page (Chromium/Edge support)
+    (function () {
+      var codigo  = {{ (codigo  or '') | tojson }};
+      var titulo  = {{ (titulo  or '') | tojson }};
+      var revNum  = {{ revisao_num | default(0) }};
+      var revText = 'Rev' + String(revNum).padStart(2, '0');
+      var header  = (codigo + ' \u2014 ' + titulo + ' \u2014 ' + revText)
+                      .replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      var s = document.createElement('style');
+      s.textContent =
+        '@page {\n' +
+        '  size: A4 portrait;\n' +
+        '  margin: 18mm 15mm 15mm 15mm;\n' +
+        '  @top-center {\n' +
+        '    content: "' + header + ' \u2014 Pg. " counter(page) " / " counter(pages);\n' +
+        '    font-family: Arial, Helvetica, sans-serif;\n' +
+        '    font-size: 7.5pt;\n' +
+        '    border-bottom: 1px solid #000;\n' +
+        '    text-align: center;\n' +
+        '    width: 100%;\n' +
+        '  }\n' +
+        '}';
+      document.head.appendChild(s);
+    }());
+  </script>
+
+</body>
+</html>

@@ -228,11 +228,17 @@
             {% endif %}
           </td>
           <td class="text-center no-print">
-            {% if doc.caminho_pdf_vigente %}
+            {% if doc.caminho_pdf_vigente and doc.content_mode == 'uploaded_file' %}
               <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
                  class="btn btn-sm btn-outline-danger py-0 px-1"
                  title="Abrir PDF vigente" target="_blank">
                 <i class="bi bi-file-pdf small"></i>
+              </a>
+            {% elif doc.content_mode == 'online_editor' and doc.content_html %}
+              <a href="{{ url_for('documentos.imprimir_documento', id=doc.id) }}"
+                 class="btn btn-sm btn-outline-secondary py-0 px-1"
+                 title="Imprimir / Salvar como PDF" target="_blank">
+                <i class="bi bi-printer small"></i>
               </a>
             {% else %}
               <span class="badge bg-warning text-dark small" title="PDF não disponível">

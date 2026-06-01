@@ -43,10 +43,17 @@
 
       <!-- Quick action buttons (top right) -->
       <div class="d-flex gap-2 flex-wrap flex-shrink-0">
-        {% if doc.caminho_pdf_vigente %}
+        {% if doc.caminho_pdf_vigente and doc.content_mode == 'uploaded_file' %}
           <a href="{{ url_for('documentos.download_pdf', id=doc.id) }}"
              class="btn btn-sm btn-danger" target="_blank" title="Abrir PDF vigente">
             <i class="bi bi-file-pdf me-1"></i>PDF Vigente
+          </a>
+        {% endif %}
+        {% if doc.content_mode == 'online_editor' and doc.content_html %}
+          <a href="{{ url_for('documentos.imprimir_documento', id=doc.id) }}"
+             target="_blank" class="btn btn-sm btn-outline-secondary"
+             title="Abrir página de impressão — Ctrl+P para salvar como PDF">
+            <i class="bi bi-printer me-1"></i>Imprimir / PDF
           </a>
         {% endif %}
         {% if (pode_editar and doc.status != 'Vigente') or pode_editar_meta %}
@@ -107,7 +114,12 @@
               </td>
               <th class="px-3 py-2 text-muted small">Revisado por</th>
               <td class="py-2 small">
-                {{ doc.revisado_por.nome if doc.revisado_por else '—' }}
+                {% if doc.revisado_por %}
+                  {{ doc.revisado_por.nome }}
+                {% elif revisor_global %}
+                  {{ revisor_global.nome }}
+                  <span class="text-muted ms-1" style="font-size:.75em;" title="Revisor geral padrão">(padrão)</span>
+                {% else %}—{% endif %}
               </td>
             </tr>
             <tr>
@@ -599,7 +611,7 @@
           <div class="mb-3">
             {{ publicar_form.motivo.label(class="form-label fw-semibold small") }}
             {{ publicar_form.motivo(class="form-control form-control-sm", rows="2",
-               placeholder="Descreva o motivo da publicação...") }}
+               placeholder="Descreva o motivo da publicação (opcional)...") }}
             {% for e in publicar_form.motivo.errors %}
               <div class="invalid-feedback">{{ e }}</div>
             {% endfor %}

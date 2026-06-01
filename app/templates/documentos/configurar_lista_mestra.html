@@ -42,7 +42,7 @@
             <div class="col-md-6">
               {{ form.codigo.label(class="form-label fw-semibold") }}
               {{ form.codigo(class="form-control" + (" is-invalid" if form.codigo.errors else ""),
-                             placeholder="Ex: LM-01") }}
+                             placeholder="Ex: FOR ADM 05") }}
               {% for e in form.codigo.errors %}
                 <div class="invalid-feedback">{{ e }}</div>
               {% endfor %}

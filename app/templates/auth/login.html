@@ -92,20 +92,32 @@
   </div>
 </div>
 
+{% endblock %}
+
 {% block extra_js %}
 <script>
-  // Toggle password visibility
-  document.getElementById('toggle-senha').addEventListener('click', function () {
+  (function () {
+    const btn   = document.getElementById('toggle-senha');
     const input = document.getElementById('senha');
     const icon  = document.getElementById('toggle-senha-icon');
-    if (input.type === 'password') {
-      input.type = 'text';
-      icon.classList.replace('bi-eye', 'bi-eye-slash');
-    } else {
-      input.type = 'password';
-      icon.classList.replace('bi-eye-slash', 'bi-eye');
+
+    if (btn && input && icon) {
+      // Toggle password visibility
+      btn.addEventListener('click', function () {
+        if (input.type === 'password') {
+          input.type = 'text';
+          icon.classList.replace('bi-eye', 'bi-eye-slash');
+        } else {
+          input.type = 'password';
+          icon.classList.replace('bi-eye-slash', 'bi-eye');
+        }
+      });
+
+      // Reset to type="password" before submit so the browser can offer to save the password
+      input.closest('form').addEventListener('submit', function () {
+        input.type = 'password';
+      });
     }
-  });
+  })();
 </script>
-{% endblock %}
 {% endblock %}

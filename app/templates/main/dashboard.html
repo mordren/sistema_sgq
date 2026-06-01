@@ -30,6 +30,28 @@
   </div>
 {% endif %}
 
+<!-- ── Alertas do sistema (PT alterado, etc.) ──────────────────────────────── -->
+{% if alertas_ativos %}
+  <div class="mb-4">
+    {% for alerta in alertas_ativos %}
+      <div class="alert alert-{{ alerta.tipo }} alert-dismissible fade show d-flex align-items-center gap-2 py-2 mb-2"
+           role="alert">
+        <i class="bi bi-bell-fill flex-shrink-0"></i>
+        <span class="small flex-grow-1">{{ alerta.mensagem }}</span>
+        <small class="text-muted me-2" style="white-space:nowrap">
+          {{ alerta.criado_em.strftime('%d/%m/%Y') }}
+        </small>
+        <form method="POST" action="{{ url_for('main.descartar_alerta', alerta_id=alerta.id) }}"
+              class="d-inline m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-secondary"
+                  title="Descartar este alerta">✕</button>
+        </form>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
 <!-- ── KPI cards ────────────────────────────────────────────────────────────── -->
 <div class="row g-3 mb-4">
 
