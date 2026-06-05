@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block title %}Controle de Versão de Software – SGQ{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-cpu me-2 text-primary"></i>Controle de Versão de Software
+    </h2>
+    <p class="text-muted small mb-0">
+      Registro de versões de software por equipamento.
+    </p>
+  </div>
+  {% if pode_editar %}
+  <button class="btn btn-sm btn-primary" type="button"
+          data-bs-toggle="collapse" data-bs-target="#add-form-panel"
+          aria-expanded="false" aria-controls="add-form-panel">
+    <i class="bi bi-plus-lg me-1"></i>Novo Registro
+  </button>
+  {% endif %}
+</div>
+
+{# ── Add form (collapsed) ── #}
+{% if pode_editar %}
+<div class="collapse mb-4" id="add-form-panel">
+  <div class="card border-primary shadow-sm">
+    <div class="card-header bg-primary text-white fw-bold small">
+      <i class="bi bi-plus-circle me-1"></i>Novo Registro de Software
+    </div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('atividades.controle_versao_software') }}" novalidate>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">
+              Equipamento <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="equipamento" class="form-control form-control-sm"
+                   placeholder="Ex: Notebook Dell Inspiron" maxlength="200" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">
+              Software <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="software" class="form-control form-control-sm"
+                   placeholder="Ex: Windows 11, AutoCAD" maxlength="200" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small fw-semibold">
+              Versão <span class="text-danger">*</span>
+            </label>
+            <input type="text" name="versao" class="form-control form-control-sm"
+                   placeholder="Ex: 23H2, 2024.1.2" maxlength="100" required>
+          </div>
+        </div>
+        <div class="mt-3 d-flex gap-2">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check-lg me-1"></i>Salvar
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm"
+                  data-bs-toggle="collapse" data-bs-target="#add-form-panel">
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Table ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-sgq-dark text-white d-flex justify-content-between align-items-center">
+    <span class="fw-bold small">
+      <i class="bi bi-cpu me-2"></i>REGISTROS DE VERSÃO DE SOFTWARE
+    </span>
+    <span class="badge bg-info ms-2">{{ registros | length }} registro(s)</span>
+  </div>
+
+  {% if registros %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm align-middle mb-0">
+      <thead>
+        <tr class="table-dark">
+          <th>Equipamento</th>
+          <th>Software</th>
+          <th class="text-center">Versão</th>
+          {% if pode_editar %}
+          <th class="text-center text-nowrap" style="width:120px;">Ações</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in registros %}
+        <tr>
+          <td>
+            <span class="small fw-semibold">{{ r.equipamento }}</span>
+          </td>
+          <td>
+            <span class="small">{{ r.software }}</span>
+          </td>
+          <td class="text-center">
+            <code class="text-primary">{{ r.versao }}</code>
+          </td>
+          {% if pode_editar %}
+          <td class="text-center text-nowrap">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#edit-{{ r.id }}"
+                    aria-expanded="false"
+                    title="Editar">
+              <i class="bi bi-pencil small"></i> Editar
+            </button>
+            {% if current_user.perfil == 'Administrador' %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-danger py-0 px-1"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalExcluirSoftware"
+                    data-id="{{ r.id }}"
+                    data-nome="{{ r.equipamento }} – {{ r.software }}"
+                    title="Excluir permanentemente">
+              <i class="bi bi-trash small"></i>
+            </button>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+
+        {# ── Inline edit row ── #}
+        {% if pode_editar %}
+        <tr>
+          <td colspan="{{ 4 if pode_editar else 3 }}" class="p-0 border-0">
+            <div class="collapse" id="edit-{{ r.id }}">
+              <div class="bg-light border-start border-primary border-3 p-3">
+                <p class="fw-semibold small mb-2 text-primary">
+                  <i class="bi bi-pencil me-1"></i>Editar: {{ r.equipamento }} – {{ r.software }}
+                </p>
+                <form method="POST"
+                      action="{{ url_for('atividades.editar_versao_software', id=r.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <div class="row g-2">
+                    <div class="col-md-4">
+                      <label class="form-label small fw-semibold">Equipamento <span class="text-danger">*</span></label>
+                      <input type="text" name="equipamento" class="form-control form-control-sm"
+                             value="{{ r.equipamento }}" maxlength="200" required>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label small fw-semibold">Software <span class="text-danger">*</span></label>
+                      <input type="text" name="software" class="form-control form-control-sm"
+                             value="{{ r.software }}" maxlength="200" required>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label small fw-semibold">Versão <span class="text-danger">*</span></label>
+                      <input type="text" name="versao" class="form-control form-control-sm"
+                             value="{{ r.versao }}" maxlength="100" required>
+                    </div>
+                  </div>
+                  <div class="mt-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary">
+                      <i class="bi bi-check-lg me-1"></i>Salvar
+                    </button>
+                    <button type="button" class="btn btn-sm btn-secondary"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#edit-{{ r.id }}">
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-cpu display-4 d-block mb-3"></i>
+    <p class="mb-1">Nenhum registro encontrado.</p>
+    {% if pode_editar %}
+    <button class="btn btn-sm btn-primary mt-2" type="button"
+            data-bs-toggle="collapse" data-bs-target="#add-form-panel">
+      <i class="bi bi-plus me-1"></i>Novo Registro
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{# ── Modal de Exclusão (Admin) ── #}
+{% if current_user.perfil == 'Administrador' %}
+<div class="modal fade" id="modalExcluirSoftware" tabindex="-1"
+     aria-labelledby="modalExcluirSoftwareLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="modalExcluirSoftwareLabel">
+          <i class="bi bi-exclamation-triangle me-2"></i>Excluir Registro
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="fw-bold text-danger mb-2">
+          <i class="bi bi-trash me-1"></i>Esta ação é irreversível!
+        </p>
+        <p>Tem certeza que deseja excluir permanentemente o registro
+           <strong id="modalExcluirSoftwareNome">—</strong>?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <form id="formExcluirSoftware" method="POST" action="">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i>Sim, Excluir Permanentemente
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script>
+// Configura modal de exclusão
+(function () {
+  const modalExcluir = document.getElementById('modalExcluirSoftware');
+  if (modalExcluir) {
+    modalExcluir.addEventListener('show.bs.modal', function (e) {
+      const btn = e.relatedTarget;
+      const id = btn.dataset.id;
+      const nome = btn.dataset.nome;
+      document.getElementById('modalExcluirSoftwareNome').textContent = nome;
+      document.getElementById('formExcluirSoftware').action =
+        '{{ url_for("atividades.excluir_versao_software", id=0) }}'.replace('/0', '/' + id);
+    });
+  }
+}());
+</script>
+{% endblock %}

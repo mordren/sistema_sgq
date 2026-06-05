@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Consultas Remotas – SGQ{% endblock %}
+
+{% block extra_css %}
+<style>
+.qz-verificado { background-color: #d1fae5; }
+.qz-pendente   { background-color: #f3f4f6; }
+.mes-label     { font-weight: 700; font-size: .85rem; letter-spacing: .04em; }
+.fonte-card    { transition: box-shadow .15s; }
+.fonte-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12) !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-globe2 me-2 text-primary"></i>Consultas Remotas
+    </h2>
+    <p class="text-muted small mb-0">
+      Controle de verificação periódica de fontes externas do SGQ.
+    </p>
+  </div>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <!-- Seletor de ano -->
+    <form method="GET" action="{{ url_for('atividades.consultas_remotas') }}" class="d-flex gap-2 align-items-center">
+      <label class="small text-muted mb-0" for="sel-ano">Ano:</label>
+      <select name="ano" id="sel-ano" class="form-select form-select-sm" style="width:auto;"
+              onchange="this.form.submit()">
+        {% for a in anos_disponiveis %}
+        <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<!-- ── Fontes Externas ─────────────────────────────────────────────────────── -->
+<div class="mb-4">
+  <h6 class="fw-semibold text-muted mb-3">
+    <i class="bi bi-link-45deg me-1"></i>Fontes oficiais a verificar
+  </h6>
+  <div class="row g-3">
+    {% for fonte in fontes %}
+    <div class="col-12 col-sm-6 col-xl-3">
+      <a href="{{ fonte.url }}" target="_blank" rel="noopener noreferrer"
+         class="btn btn-outline-{{ fonte.cor }} w-100 text-start fonte-card py-3 px-3 d-flex align-items-center gap-2">
+        <i class="bi {{ fonte.icon }} fs-5 flex-shrink-0"></i>
+        <span class="small fw-semibold">{{ fonte.nome }}</span>
+        <i class="bi bi-box-arrow-up-right ms-auto small opacity-50"></i>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Tabela de Quinzenas ────────────────────────────────────────────────── -->
+<form method="POST" action="{{ url_for('atividades.consultas_remotas', ano=ano) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-2">
+      <span class="fw-semibold small">
+        <i class="bi bi-calendar2-check me-1"></i>Controle de verificações — {{ ano }}
+      </span>
+      {% if pode_editar %}
+      <button type="submit" class="btn btn-success btn-sm">
+        <i class="bi bi-floppy me-1"></i>Salvar verificações
+      </button>
+      {% endif %}
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm align-middle mb-0">
+        <colgroup>
+          <col style="width:5rem;">
+          <col style="width:8rem;">
+          <col style="width:13rem;">
+          <col style="width:8rem;">
+          <col style="width:13rem;">
+        </colgroup>
+        <thead class="table-dark text-center">
+          <tr>
+            <th rowspan="2" class="align-middle">Mês</th>
+            <th colspan="2" class="border-end">1ª Quinzena</th>
+            <th colspan="2">2ª Quinzena</th>
+          </tr>
+          <tr>
+            <th>Status</th>
+            <th class="border-end">Responsável</th>
+            <th>Status</th>
+            <th>Responsável</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for num_mes, nome_mes in meses %}
+            {% set q1 = mapa.get((num_mes, 1)) %}
+            {% set q2 = mapa.get((num_mes, 2)) %}
+          <tr>
+            <td class="text-center mes-label">{{ nome_mes }}</td>
+
+            {# ── 1ª Quinzena ── #}
+            <td class="text-center {% if q1 and q1.verificado %}qz-verificado{% else %}qz-pendente{% endif %}">
+              {% if pode_editar %}
+                <div class="form-check d-flex justify-content-center m-0">
+                  <input class="form-check-input" type="checkbox" name="quinzena"
+                         value="{{ num_mes }}-1"
+                         {% if q1 and q1.verificado %}checked{% endif %}>
+                </div>
+              {% else %}
+                {% if q1 and q1.verificado %}
+                  <i class="bi bi-check-circle-fill text-success"></i>
+                {% else %}
+                  <span class="text-muted small">Pendente</span>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td class="small border-end {% if q1 and q1.verificado %}qz-verificado{% else %}qz-pendente{% endif %}">
+              {% if q1 and q1.verificado_por %}
+                {{ q1.verificado_por.nome }}
+              {% else %}—{% endif %}
+            </td>
+
+            {# ── 2ª Quinzena ── #}
+            <td class="text-center {% if q2 and q2.verificado %}qz-verificado{% else %}qz-pendente{% endif %}">
+              {% if pode_editar %}
+                <div class="form-check d-flex justify-content-center m-0">
+                  <input class="form-check-input" type="checkbox" name="quinzena"
+                         value="{{ num_mes }}-2"
+                         {% if q2 and q2.verificado %}checked{% endif %}>
+                </div>
+              {% else %}
+                {% if q2 and q2.verificado %}
+                  <i class="bi bi-check-circle-fill text-success"></i>
+                {% else %}
+                  <span class="text-muted small">Pendente</span>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td class="small {% if q2 and q2.verificado %}qz-verificado{% else %}qz-pendente{% endif %}">
+              {% if q2 and q2.verificado_por %}
+                {{ q2.verificado_por.nome }}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if pode_editar %}
+    <div class="card-footer bg-white border-top py-2 text-end">
+      <button type="submit" class="btn btn-success btn-sm">
+        <i class="bi bi-floppy me-1"></i>Salvar verificações
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</form>
+
+<p class="text-muted small">
+  <i class="bi bi-info-circle me-1"></i>
+  Marque as quinzenas verificadas e clique em <strong>Salvar verificações</strong>.
+  A data e o responsável são registrados automaticamente.
+</p>
+{% endblock %}

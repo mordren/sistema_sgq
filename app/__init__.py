@@ -32,6 +32,9 @@ def create_app(config_name: str = 'default') -> Flask:
     from app.documentos import documentos as documentos_bp
     app.register_blueprint(documentos_bp, url_prefix='/documentos')
 
+    from app.atividades import atividades as atividades_bp
+    app.register_blueprint(atividades_bp, url_prefix='/atividades')
+
     # ── Register error handlers ────────────────────────────────────────────────
     _register_error_handlers(app)
 

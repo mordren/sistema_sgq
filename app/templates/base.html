@@ -83,6 +83,13 @@
           Novo Documento
         </a>
       </li>
+      <li class="nav-item">
+        <a href="{{ url_for('documentos.upload_lote') }}"
+           class="nav-link sidebar-link {% if request.endpoint == 'documentos.upload_lote' %}active{% endif %}">
+          <i class="bi bi-cloud-upload"></i>
+          Upload em Lote
+        </a>
+      </li>
       {% endif %}
 
       <li class="nav-item">
@@ -110,11 +117,6 @@
         </a>
       </li>
 
-      <!-- Quality group -->
-      <li class="nav-item mt-2">
-        <span class="nav-group-label">Qualidade</span>
-      </li>
-
       <li class="nav-item">
         <a href="{{ url_for('documentos.matriz_correlacao') }}"
            class="nav-link sidebar-link {% if request.endpoint in ['documentos.matriz_correlacao', 'documentos.excluir_matriz_correlacao'] %}active{% endif %}">
@@ -123,11 +125,22 @@
         </a>
       </li>
 
+      <!-- Atividades group -->
+      <li class="nav-item mt-2">
+        <span class="nav-group-label">Atividades</span>
+      </li>
       <li class="nav-item">
-        <a href="{{ url_for('main.em_desenvolvimento') }}"
-           class="nav-link sidebar-link">
-          <i class="bi bi-bar-chart-line"></i>
-          Relatórios
+        <a href="{{ url_for('atividades.consultas_remotas') }}"
+           class="nav-link sidebar-link {% if request.endpoint == 'atividades.consultas_remotas' %}active{% endif %}">
+          <i class="bi bi-globe2"></i>
+          Consultas Remotas
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('atividades.controle_versao_software') }}"
+           class="nav-link sidebar-link {% if request.endpoint and request.endpoint.startswith('atividades.controle_versao_software') %}active{% endif %}">
+          <i class="bi bi-cpu"></i>
+          Versão de Software
         </a>
       </li>
 

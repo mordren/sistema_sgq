@@ -10,6 +10,8 @@ from app.models.documento_externo import DocumentoExterno
 from app.models.matriz_correlacao import MatrizCorrelacao
 from app.models.lista_mestra_config import ListaMestraConfig
 from app.models.alerta import Alerta
+from app.models.consulta_remota import ConsultaRemota
+from app.models.controle_versao_software import ControleVersaoSoftware
 
 __all__ = [
     'Usuario', 'Perfil',
@@ -21,4 +23,6 @@ __all__ = [
     'MatrizCorrelacao',
     'ListaMestraConfig',
     'Alerta',
+    'ConsultaRemota',
+    'ControleVersaoSoftware',
 ]

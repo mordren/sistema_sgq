@@ -48,6 +48,27 @@ from app.utils.historico import registrar_evento
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _natural_sort_key(value: str | None):
+    """Key for natural (human-friendly) sorting of strings with numbers.
+
+    Splits on digit boundaries so that 'Portaria 23/1994' < 'Portaria 058/2017'
+    instead of lexicographic ordering where '23' > '1097'.
+    """
+    if not value:
+        return ('',)
+    parts = re.split(r'(\d+)', value)
+    return tuple(int(p) if p.isdigit() else p.lower() for p in parts)
+
+
+def _ordenar_docs_externos(docs: list) -> list:
+    """Sort external documents naturally: orgao_emissor first, then codigo."""
+    docs.sort(key=lambda d: (
+        (d.orgao_emissor or '').lower(),
+        _natural_sort_key(d.codigo),
+    ))
+    return docs
+
+
 def _choices_usuarios(include_empty: bool = True) -> list:
     """Return user choices for WTForms SelectField."""
     usuarios = Usuario.query.filter_by(ativo=True).order_by(Usuario.nome).all()
@@ -66,6 +87,154 @@ def _populate_user_selects(form) -> None:
     form.elaborado_por_id.choices = choices
     form.revisado_por_id.choices = choices
     form.aprovado_por_id.choices = choices
+
+
+# ── Upload em Lote – helpers ───────────────────────────────────────────────────
+
+# Aceita ambos os formatos:
+#   FOR ADM 47 rev. 00 Titulo.pdf  (espaço + rev. + número)
+#   FOR ADM 47_Rev00_Titulo.pdf    (underscore + Rev + número)
+_RE_NOME_PDF_LOTE = re.compile(r'^(.+?)(?:\s+|_+)rev\.?\s*(\d+)', re.IGNORECASE)
+
+
+def _parsear_codigo_do_nome(filename: str):
+    """Extract (codigo, revisao) from a PDF filename.
+
+    Supported formats:
+      FOR ADM 47 rev. 00 Titulo.pdf
+      FOR ADM 47_Rev00_Titulo.pdf
+
+    Returns (codigo_str, revisao_int) or (None, None) if no match.
+    """
+    nome = os.path.splitext(filename)[0]
+    m = _RE_NOME_PDF_LOTE.match(nome)
+    if not m:
+        return None, None
+    codigo_raw = m.group(1).strip().strip('_')
+    try:
+        revisao = int(m.group(2))
+    except ValueError:
+        revisao = 0
+    return codigo_raw, revisao
+
+
+def _buscar_doc_lote(codigo_raw: str):
+    """Find an active document by code, trying multiple normalizations.
+
+    Handles mismatches between filename separators and DB codes, e.g.:
+      filename: 'FOR ADM 04'  →  DB code: 'FOR-ADM-04'
+      filename: 'FOR ADM 04'  →  DB code: 'FOR ADM 04'
+      filename: 'FOR_ADM_04'  →  DB code: 'FOR ADM 04'
+    """
+    # Build a list of candidate codes to try (deduplicated, preserving order)
+    seen = set()
+    candidates = []
+    for variant in [
+        codigo_raw,                              # as-is
+        codigo_raw.replace('_', ' '),            # underscores → spaces
+        codigo_raw.replace(' ', '-'),            # spaces → hyphens
+        codigo_raw.replace('_', '-'),            # underscores → hyphens
+        re.sub(r'[\s_-]+', ' ', codigo_raw),     # any separator → single space
+        re.sub(r'[\s_-]+', '-', codigo_raw),     # any separator → hyphen
+    ]:
+        key = variant.upper()
+        if key not in seen:
+            seen.add(key)
+            candidates.append(variant)
+
+    for candidate in candidates:
+        doc = Documento.query.filter(
+            db.func.upper(Documento.codigo) == candidate.upper(),
+            Documento.ativo == True,
+        ).first()
+        if doc:
+            return doc
+    return None
+
+
+def _processar_pdf_lote(arquivo) -> dict:
+    """Save a PDF and publish the matching document as Vigente.
+
+    Returns a result dict with keys: arquivo, status, codigo, titulo, mensagem.
+    """
+    filename = arquivo.filename or ''
+
+    if not extensao_permitida(filename, ALLOWED_PDF):
+        return {'arquivo': filename, 'status': 'erro',
+                'mensagem': 'Apenas arquivos PDF são permitidos.'}
+
+    codigo_raw, _revisao = _parsear_codigo_do_nome(filename)
+    if not codigo_raw:
+        return {
+            'arquivo': filename, 'status': 'erro',
+            'mensagem': (
+                'Não foi possível identificar o código no nome do arquivo. '
+                'Use o formato: CODIGO_RevXX_Titulo.pdf'
+            ),
+        }
+
+    doc = _buscar_doc_lote(codigo_raw)
+    if doc is None:
+        return {
+            'arquivo': filename, 'status': 'nao_encontrado', 'codigo': codigo_raw,
+            'mensagem': f'Documento com código "{codigo_raw}" não encontrado no sistema.',
+        }
+
+    if doc.status != StatusDocumento.RASCUNHO:
+        return {
+            'arquivo': filename, 'status': 'ignorado', 'codigo': doc.codigo,
+            'titulo': doc.titulo,
+            'mensagem': (
+                f'Status atual: {doc.status}. '
+                'Somente documentos em Rascunho são aceitos.'
+            ),
+        }
+
+    nome_arquivo = nome_pdf_vigente(doc.codigo, doc.revisao_atual, doc.titulo)
+    em_revisao_dir = current_app.config['EM_REVISAO_DIR']
+
+    try:
+        salvar_upload(arquivo, em_revisao_dir, nome_arquivo)
+    except Exception:
+        current_app.logger.exception('Erro ao salvar PDF lote doc %s', doc.id)
+        return {'arquivo': filename, 'status': 'erro',
+                'mensagem': 'Erro ao salvar o arquivo no servidor.'}
+
+    agora = agora_brasilia()
+    doc.aprovado_por_id = current_user.id
+    doc.data_aprovacao = agora
+    doc.data_publicacao = agora
+    doc.status = StatusDocumento.VIGENTE
+    doc.content_mode = 'uploaded_file'
+    doc.content_html = None
+    doc.atualizado_em = agora
+
+    src = caminho_em_revisao(nome_arquivo)
+    dst = caminho_vigente_pdf(nome_arquivo)
+    if arquivo_existe(src):
+        mover_arquivo(src, dst)
+    doc.caminho_pdf_vigente = nome_arquivo
+
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.PUBLICADO_VIGENTE,
+        f'Upload em lote por {current_user.nome}.',
+    )
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Erro ao commitar lote doc %s', doc.id)
+        return {'arquivo': filename, 'status': 'erro',
+                'mensagem': 'Erro ao salvar no banco de dados.'}
+
+    return {
+        'arquivo': filename, 'status': 'sucesso',
+        'codigo': doc.codigo, 'titulo': doc.titulo,
+        'mensagem': f'Documento {doc.codigo} publicado como Vigente.',
+        'doc_id': doc.id,
+    }
 
 
 def _ensure_documento_matriz_schema() -> None:
@@ -725,6 +894,40 @@ def cadastro_rapido():
     )
 
 
+# ── Upload em Lote ─────────────────────────────────────────────────────────────
+
+@documentos.route('/upload-lote', methods=['GET', 'POST'])
+@login_required
+@bloquear_auditor
+def upload_lote():
+    """Bulk PDF upload: identify documents by filename, publish each as Vigente.
+
+    POST expects multipart field 'arquivos' (multiple PDFs).
+    Returns JSON with per-file results so the page can display live feedback.
+    """
+    if not current_user.pode_editar_documentos():
+        abort(403)
+
+    if request.method == 'POST':
+        arquivos = request.files.getlist('arquivos')
+        if not arquivos or all(not a.filename for a in arquivos):
+            return jsonify({'erro': 'Nenhum arquivo recebido.'}), 400
+
+        resultados = []
+        for arquivo in arquivos:
+            if not arquivo.filename:
+                continue
+            resultado = _processar_pdf_lote(arquivo)
+            resultados.append(resultado)
+
+        return jsonify({'resultados': resultados})
+
+    return render_template(
+        'documentos/upload_lote.html',
+        title='Upload em Lote',
+    )
+
+
 # ── Importar Matriz de Correlação ──────────────────────────────────────────────
 
 # ── Ordenação por tipo (ordem canônica do SGQ) ────────────────────────────────
@@ -979,9 +1182,31 @@ def lista_mestra():
     docs_externos = (
         DocumentoExterno.query
         .filter_by(status='Vigente')
-        .order_by(DocumentoExterno.orgao_emissor, DocumentoExterno.codigo)
         .all()
     )
+    _ordenar_docs_externos(docs_externos)
+
+    from app.models.consulta_remota import ConsultaRemota
+    from app.models.controle_versao_software import ControleVersaoSoftware
+    ano_lm = agora_brasilia().year
+    consultas = ConsultaRemota.query.filter_by(ano=ano_lm).all()
+    consultas_mapa = {(c.mes, c.quinzena): c for c in consultas}
+
+    versao_software = (
+        ControleVersaoSoftware.query
+        .order_by(
+            ControleVersaoSoftware.equipamento,
+            ControleVersaoSoftware.software,
+        )
+        .all()
+    )
+
+    _MESES_LM = [
+        (1,'JAN'),(2,'FEV'),(3,'MAR'),(4,'ABR'),
+        (5,'MAI'),(6,'JUN'),(7,'JUL'),(8,'AGO'),
+        (9,'SET'),(10,'OUT'),(11,'NOV'),(12,'DEZ'),
+    ]
+
     return render_template(
         'documentos/lista_mestra.html',
         title='Lista Mestra',
@@ -992,6 +1217,10 @@ def lista_mestra():
         cfg=cfg,
         pode_configurar=pode_configurar,
         docs_externos=docs_externos,
+        consultas_mapa=consultas_mapa,
+        consultas_meses=_MESES_LM,
+        consultas_ano=ano_lm,
+        versao_software=versao_software,
     )
 
 
@@ -1014,12 +1243,24 @@ def exportar_lista_mestra(formato):
         .all()
     )
 
+    from app.models.consulta_remota import ConsultaRemota
+    from app.models.controle_versao_software import ControleVersaoSoftware
+    consultas_exp = ConsultaRemota.query.filter_by(ano=agora_brasilia().year).all()
+    versao_sw_exp = (
+        ControleVersaoSoftware.query
+        .order_by(
+            ControleVersaoSoftware.equipamento,
+            ControleVersaoSoftware.software,
+        )
+        .all()
+    )
+
     stamp = agora_brasilia().strftime('%Y%m%d_%H%M')
     fmt = formato.lower()
     cfg = ListaMestraConfig.get()
 
     if fmt == 'excel':
-        output = gerar_excel_lista_mestra(docs, externos=docs_externos_exp)
+        output = gerar_excel_lista_mestra(docs, externos=docs_externos_exp, consultas=consultas_exp, versao_sw=versao_sw_exp)
         return send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1027,7 +1268,7 @@ def exportar_lista_mestra(formato):
             download_name=f'lista_mestra_{stamp}.xlsx',
         )
     elif fmt == 'pdf':
-        output = gerar_pdf_lista_mestra(docs, cfg=cfg, externos=docs_externos_exp)
+        output = gerar_pdf_lista_mestra(docs, cfg=cfg, externos=docs_externos_exp, consultas=consultas_exp, versao_sw=versao_sw_exp)
         return send_file(
             output,
             mimetype='application/pdf',
@@ -1035,7 +1276,7 @@ def exportar_lista_mestra(formato):
             download_name=f'lista_mestra_{stamp}.pdf',
         )
     elif fmt == 'csv':
-        csv_str = gerar_csv_lista_mestra(docs, externos=docs_externos_exp)
+        csv_str = gerar_csv_lista_mestra(docs, externos=docs_externos_exp, consultas=consultas_exp, versao_sw=versao_sw_exp)
         return Response(
             csv_str.encode('utf-8-sig'),
             mimetype='text/csv; charset=utf-8-sig',
@@ -1074,6 +1315,7 @@ def configurar_lista_mestra():
         cfg.elaborado_por_id = form.elaborado_por_id.data or None
         cfg.revisado_por_id = form.revisado_por_id.data or None
         cfg.aprovado_por_id = form.aprovado_por_id.data or None
+        cfg.data_aprovacao = form.data_aprovacao.data or agora_brasilia()
         cfg.atualizado_em = agora_brasilia()
         db.session.commit()
         flash('Configuração da Lista Mestra salva com sucesso!', 'success')
@@ -1083,6 +1325,8 @@ def configurar_lista_mestra():
         form.elaborado_por_id.data = cfg.elaborado_por_id or 0
         form.revisado_por_id.data = cfg.revisado_por_id or 0
         form.aprovado_por_id.data = cfg.aprovado_por_id or 0
+        if cfg.data_aprovacao:
+            form.data_aprovacao.data = cfg.data_aprovacao.date()
 
     return render_template(
         'documentos/configurar_lista_mestra.html',
@@ -2751,9 +2995,8 @@ def documentos_externos():
         )
     if orgao_f:
         query = query.filter(DocumentoExterno.orgao_emissor.ilike(f'%{orgao_f}%'))
-    docs_externos = query.order_by(
-        DocumentoExterno.orgao_emissor, DocumentoExterno.codigo
-    ).all()
+    docs_externos = query.all()
+    _ordenar_docs_externos(docs_externos)
 
     return render_template(
         'documentos/documentos_externos.html',
@@ -2820,6 +3063,37 @@ def editar_externo(id):
 
     db.session.commit()
     flash('Documento externo atualizado!', 'success')
+    return redirect(url_for('documentos.documentos_externos'))
+
+
+@documentos.route('/externos/excluir/<int:id>', methods=['POST'])
+@login_required
+def excluir_externo(id):
+    """Exclui permanentemente um documento externo. Apenas Admin."""
+    if current_user.perfil != Perfil.ADMINISTRADOR:
+        abort(403)
+
+    doc = DocumentoExterno.query.get_or_404(id)
+    codigo_ou_titulo = doc.codigo or doc.titulo
+
+    # Remove arquivo físico
+    if doc.arquivo_pdf:
+        ext_dir = current_app.config['EXTERNOS_DIR']
+        caminho = os.path.join(ext_dir, doc.arquivo_pdf)
+        try:
+            if os.path.isfile(caminho):
+                os.remove(caminho)
+        except Exception:
+            current_app.logger.warning(
+                'Não foi possível remover arquivo %s', caminho
+            )
+
+    db.session.delete(doc)
+    db.session.commit()
+    flash(
+        f'Documento externo "{codigo_ou_titulo}" excluído permanentemente.',
+        'success',
+    )
     return redirect(url_for('documentos.documentos_externos'))
 
 

@@ -30,10 +30,61 @@
     width: 33.33%;
   }
   @media print {
+    * { box-shadow: none !important; }
     #sidebar, .top-navbar, .no-print { display: none !important; }
-    .card { border: none !important; box-shadow: none !important; }
-    body { font-size: 11px; }
-    .lm-doc-header, .lm-signatories { margin-bottom: 4px; }
+    body {
+      font-size: 9pt; background: #fff; color: #000;
+      margin: 0; padding: 0;
+    }
+    .card {
+      border: none !important; box-shadow: none !important;
+      break-inside: auto; page-break-inside: auto !important;
+      margin: 0 !important;
+    }
+    .lm-doc-header, .lm-signatories { margin-bottom: 1px; }
+    .lm-doc-header td { padding: 1px 3px !important; font-size: 8pt !important; }
+    .lm-signatories td { padding: 1px 3px !important; font-size: 7.5pt !important; }
+    .card-header, .card-footer { padding: 1px 4px !important; }
+    .card-header .fw-bold small { font-size: 7.5pt !important; }
+
+    /* ── Table: prevent responsive clipping ── */
+    .table-responsive {
+      overflow: visible !important;
+      width: 100% !important;
+    }
+    .table-responsive table {
+      width: 100% !important;
+      table-layout: fixed !important;
+      font-size: 7pt !important;
+    }
+    .table-responsive table th,
+    .table-responsive table td {
+      padding: 1px 3px !important;
+      overflow: hidden;
+      word-wrap: break-word;
+    }
+    /* Keep table header repeat on multi-page */
+    .lm-table thead { display: table-header-group; }
+    .lm-table tbody { display: table-row-group; }
+    /* Explicit column widths (8 visible cols; PDF col is hidden) */
+    .lm-table col.col-codigo       { width: 10%; }
+    .lm-table col.col-titulo       { width: 30%; }
+    .lm-table col.col-tipo         { width: 11%; }
+    .lm-table col.col-rev          { width:  6%; }
+    .lm-table col.col-data         { width: 10%; }
+    .lm-table col.col-elab         { width: 14%; }
+    .lm-table col.col-dist-tec     { width:  8%; }
+    .lm-table col.col-dist-adm     { width:  8%; }
+    .lm-table col.col-pdf-action   { width:  3%; }
+
+    /* ── FIX: prevent header / content split ── */
+    #sgq-wrapper { display: block !important; min-height: auto !important; }
+    .container-fluid { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+    /* Remove top spacing from content area */
+    .container-fluid > .row:first-child { margin-top: 0 !important; }
+
+    /* Landscape orientation - standard @page rule */
+    @page { size: landscape; margin: 6mm 5mm 6mm 5mm; }
   }
 </style>
 {% endblock %}
@@ -169,6 +220,17 @@
   {% if documentos %}
   <div class="table-responsive">
     <table class="table table-bordered table-hover table-sm align-middle mb-0 lm-table">
+      <colgroup>
+        <col class="col-codigo">
+        <col class="col-titulo">
+        <col class="col-tipo">
+        <col class="col-rev">
+        <col class="col-data">
+        <col class="col-elab">
+        <col class="col-dist-tec">
+        <col class="col-dist-adm">
+        <col class="col-pdf-action no-print">
+      </colgroup>
       <thead>
         <tr class="table-dark">
           <th class="text-nowrap px-2">Código</th>
@@ -297,7 +359,15 @@
         </tr>
       </thead>
       <tbody>
-        {% for ext in docs_externos %}
+        {% for orgao, docs in docs_externos | groupby('orgao_emissor') %}
+        {# ── Group header row ── #}
+        <tr class="lm-group-header">
+          <td colspan="7" class="fw-bold small py-1 px-2 text-primary-emphasis bg-primary-subtle">
+            {{ orgao or 'Sem Órgão Emissor' }}
+          </td>
+        </tr>
+
+        {% for ext in docs %}
         <tr>
           <td class="px-2">
             <code class="fw-bold text-info">{{ ext.codigo or '—' }}</code>
@@ -328,6 +398,7 @@
           </td>
         </tr>
         {% endfor %}
+        {% endfor %}
       </tbody>
     </table>
   </div>
@@ -335,6 +406,118 @@
     <a href="{{ url_for('documentos.documentos_externos') }}" class="text-decoration-none">
       <i class="bi bi-arrow-right me-1"></i>Gerenciar Documentos Externos
     </a>
+  </div>
+</div>
+{% endif %}
+
+{# ── Controle de Consultas Remotas ──────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center"
+       style="background:#1a2035;">
+    <span class="fw-semibold text-white small">
+      <i class="bi bi-globe2 me-2"></i>Controle de Consultas Remotas — {{ consultas_ano }}
+    </span>
+    <a href="{{ url_for('atividades.consultas_remotas', ano=consultas_ano) }}"
+       class="btn btn-sm btn-outline-light py-0 px-2 no-print">
+      <i class="bi bi-pencil-square me-1"></i>Gerenciar
+    </a>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle mb-0">
+      <thead class="text-center" style="background:#2a3550; color:#fff;">
+        <tr>
+          <th rowspan="2" class="align-middle" style="width:4.5rem;">Mês</th>
+          <th colspan="2" class="border-end">1ª Quinzena</th>
+          <th colspan="2">2ª Quinzena</th>
+        </tr>
+        <tr>
+          <th style="width:7rem;">Status</th>
+          <th class="border-end" style="width:11rem;">Responsável</th>
+          <th style="width:7rem;">Status</th>
+          <th style="width:11rem;">Responsável</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for num_mes, nome_mes in consultas_meses %}
+          {% set q1 = consultas_mapa.get((num_mes, 1)) %}
+          {% set q2 = consultas_mapa.get((num_mes, 2)) %}
+        <tr>
+          <td class="text-center fw-bold small">{{ nome_mes }}</td>
+
+          <td class="text-center {% if q1 and q1.verificado %}table-success{% else %}table-secondary{% endif %}">
+            {% if q1 and q1.verificado %}
+              <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Verificado</span>
+            {% else %}
+              <span class="badge bg-secondary">Pendente</span>
+            {% endif %}
+          </td>
+          <td class="small border-end {% if q1 and q1.verificado %}table-success{% else %}table-secondary{% endif %}">
+            {{ q1.verificado_por.nome if q1 and q1.verificado_por else '—' }}
+          </td>
+
+          <td class="text-center {% if q2 and q2.verificado %}table-success{% else %}table-secondary{% endif %}">
+            {% if q2 and q2.verificado %}
+              <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Verificado</span>
+            {% else %}
+              <span class="badge bg-secondary">Pendente</span>
+            {% endif %}
+          </td>
+          <td class="small {% if q2 and q2.verificado %}table-success{% else %}table-secondary{% endif %}">
+            {{ q2.verificado_por.nome if q2 and q2.verificado_por else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card-footer bg-white py-2">
+    <p class="small text-muted fw-semibold mb-1">
+      <i class="bi bi-link-45deg me-1"></i>Fontes externas verificadas:
+    </p>
+    <div class="d-flex flex-wrap gap-2">
+      <span class="badge rounded-pill border text-dark fw-normal px-2 py-1">INMETRO – Legislação</span>
+      <span class="badge rounded-pill border text-dark fw-normal px-2 py-1">SENATRAN – Resoluções CONTRAN</span>
+      <span class="badge rounded-pill border text-dark fw-normal px-2 py-1">SENATRAN – Portarias SENATRAN</span>
+      <span class="badge rounded-pill border text-dark fw-normal px-2 py-1">INMETRO – Organismos Acreditados / OIA</span>
+    </div>
+  </div>
+</div>
+
+{# ── Controle de Versão de Software ─────────────────────────────────────────── #}
+{% if versao_software %}
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center"
+       style="background:#1a2035;">
+    <span class="fw-semibold text-white small">
+      <i class="bi bi-cpu me-2"></i>Controle de Versão de Software
+    </span>
+    <a href="{{ url_for('atividades.controle_versao_software') }}"
+       class="btn btn-sm btn-outline-light py-0 px-2 no-print">
+      <i class="bi bi-pencil-square me-1"></i>Gerenciar
+    </a>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle mb-0">
+      <thead class="text-center" style="background:#2a3550; color:#fff;">
+        <tr>
+          <th>Equipamento</th>
+          <th>Software</th>
+          <th class="text-center" style="width:9rem;">Versão</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in versao_software %}
+        <tr>
+          <td class="small fw-semibold">{{ r.equipamento }}</td>
+          <td class="small">{{ r.software }}</td>
+          <td class="text-center"><code class="text-primary">{{ r.versao }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 {% endif %}

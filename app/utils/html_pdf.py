@@ -527,10 +527,10 @@ def NumberedCanvasFactory(metadata: dict):
 
       def showPage(self):
         self._saved_page_states.append(dict(self.__dict__))
-        Canvas.showPage(self)
+        self._startPage()  # reset drawing buffer; do NOT commit yet
 
       def save(self):
-        # Add page count to each saved page and write them out
+        # Now that we know total pages, draw the header and commit each page
         num_pages = len(self._saved_page_states)
         for state in self._saved_page_states:
           self.__dict__.update(state)

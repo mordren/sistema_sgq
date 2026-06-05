@@ -2,7 +2,7 @@ from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileAllowed
 from wtforms import (
     StringField, SelectField, BooleanField, TextAreaField,
-    IntegerField, SubmitField, HiddenField,
+    IntegerField, SubmitField, HiddenField, DateField,
 )
 from wtforms.validators import DataRequired, Length, Optional, NumberRange
 
@@ -172,6 +172,11 @@ class ListaMestraConfigForm(FlaskForm):
     )
     aprovado_por_id = SelectField(
         'Aprovado por', coerce=int, choices=[], validators=[Optional()]
+    )
+    data_aprovacao = DateField(
+        'Data de aprovação',
+        format='%Y-%m-%d',
+        validators=[Optional()],
     )
     submit = SubmitField('Salvar Configuração')
 

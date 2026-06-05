@@ -183,7 +183,17 @@
         </tr>
       </thead>
       <tbody>
-        {% for doc in docs_externos %}
+        {% for orgao, docs in docs_externos | groupby('orgao_emissor') %}
+        {# ── Group header row ── #}
+        <tr class="table-info">
+          <td colspan="9" class="fw-bold small py-2">
+            <i class="bi bi-building me-2"></i>
+            {{ orgao or 'Sem Órgão Emissor' }}
+            <span class="badge bg-dark ms-2">{{ docs | length }}</span>
+          </td>
+        </tr>
+
+        {% for doc in docs %}
         {# ── Main data row ── #}
         <tr {% if doc.status == 'Obsoleto' %}class="table-secondary"{% endif %}>
           <td class="px-2">
@@ -255,6 +265,17 @@
                     aria-expanded="false"
                     title="Editar">
               <i class="bi bi-pencil small"></i> Editar
+            </button>
+            {% endif %}
+            {% if current_user.perfil == 'Administrador' %}
+            <button type="button"
+                    class="btn btn-sm btn-outline-danger py-0 px-1"
+                    data-bs-toggle="modal"
+                    data-bs-target="#modalExcluirExterno"
+                    data-id="{{ doc.id }}"
+                    data-nome="{{ doc.codigo or doc.titulo }}"
+                    title="Excluir permanentemente">
+              <i class="bi bi-trash small"></i>
             </button>
             {% endif %}
           </td>
@@ -348,6 +369,7 @@
         </tr>
         {% endif %}
 
+        {% endfor %}
         {% endfor %}
       </tbody>
     </table>
@@ -542,6 +564,60 @@
     metaStrip.innerHTML = '';
     spinner.classList.remove('d-none');
   });
+}());
+</script>
+
+{# ── Modal de Exclusão (Admin) ── #}
+{% if current_user.perfil == 'Administrador' %}
+<div class="modal fade" id="modalExcluirExterno" tabindex="-1"
+     aria-labelledby="modalExcluirExternoLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="modalExcluirExternoLabel">
+          <i class="bi bi-exclamation-triangle me-2"></i>Excluir Documento Externo
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="fw-bold text-danger mb-2">
+          <i class="bi bi-trash me-1"></i>Esta ação é irreversível!
+        </p>
+        <p>Tem certeza que deseja excluir permanentemente o documento externo
+           <strong id="modalExcluirNome">—</strong>?</p>
+        <ul class="small text-muted mb-0">
+          <li>O arquivo será removido do servidor</li>
+          <li>O registro será apagado do banco de dados</li>
+        </ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <form id="formExcluirExterno" method="POST" action="">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i>Sim, Excluir Permanentemente
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+// Configura modal de exclusão
+(function () {
+  const modalExcluir = document.getElementById('modalExcluirExterno');
+  if (modalExcluir) {
+    modalExcluir.addEventListener('show.bs.modal', function (e) {
+      const btn = e.relatedTarget;
+      const id = btn.dataset.id;
+      const nome = btn.dataset.nome;
+      document.getElementById('modalExcluirNome').textContent = nome;
+      document.getElementById('formExcluirExterno').action =
+        '{{ url_for("documentos.excluir_externo", id=0) }}'.replace('/0', '/' + id);
+    });
+  }
 }());
 </script>
 {% endblock %}
