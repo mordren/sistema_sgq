@@ -45,7 +45,7 @@ class ProductionConfig(Config):
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
 
     # Enforce HTTPS cookies in production
-    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = False
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     REMEMBER_COOKIE_SECURE = True

@@ -126,6 +126,7 @@
       </li>
 
       <!-- Atividades group -->
+      {% if not current_user.eh_auditor_externo() %}
       <li class="nav-item mt-2">
         <span class="nav-group-label">Atividades</span>
       </li>
@@ -143,6 +144,7 @@
           Versão de Software
         </a>
       </li>
+      {% endif %}
 
       <!-- Administration group (restricted) -->
       {% if current_user.pode_gerenciar_usuarios() %}
@@ -154,6 +156,13 @@
            class="nav-link sidebar-link {% if request.endpoint and request.endpoint.startswith('main.usuario') %}active{% endif %}">
           <i class="bi bi-people"></i>
           Usuários
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="{{ url_for('main.exportar_pdfs') }}"
+           class="nav-link sidebar-link {% if request.endpoint and request.endpoint.startswith('main.exportar_pdfs') %}active{% endif %}">
+          <i class="bi bi-file-zip"></i>
+          Exportar PDFs
         </a>
       </li>
       {% endif %}

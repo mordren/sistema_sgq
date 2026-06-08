@@ -23,6 +23,16 @@ class AcaoEvento:
     CONTEUDO_EDITADO_ONLINE = 'Conteúdo editado online'
     REPROVADO = 'Revisão reprovada'
     DOCUMENTO_EXCLUIDO = 'Documento excluído permanentemente'
+    DOCUMENTO_EXTERNO_ADICIONADO = 'Documento externo adicionado'
+    DOCUMENTO_EXTERNO_EDITADO = 'Documento externo editado'
+    DOCUMENTO_EXTERNO_EXCLUIDO = 'Documento externo excluído'
+    SOFTWARE_ADICIONADO = 'Versão de software adicionada'
+    SOFTWARE_EDITADO = 'Versão de software editada'
+    SOFTWARE_EXCLUIDO = 'Versão de software excluída'
+    MATRIZ_ATUALIZADA = 'Matriz de correlação atualizada'
+    EXPORTACAO_PDFS_INICIADA = 'Exportação de PDFs em lote iniciada'
+    EXPORTACAO_PDFS_CONCLUIDA = 'Exportação de PDFs em lote concluída'
+    CONSULTA_REMOTA_VERIFICADA = 'Consulta remota verificada'
 
     # Bootstrap icon name for each action (used in history timeline)
     ICONE = {
@@ -43,6 +53,16 @@ class AcaoEvento:
         CONTEUDO_EDITADO_ONLINE: 'pencil-square',
         REPROVADO: 'x-octagon',
         DOCUMENTO_EXCLUIDO: 'trash',
+        DOCUMENTO_EXTERNO_ADICIONADO: 'globe2',
+        DOCUMENTO_EXTERNO_EDITADO: 'globe2',
+        DOCUMENTO_EXTERNO_EXCLUIDO: 'globe2',
+        SOFTWARE_ADICIONADO: 'cpu',
+        SOFTWARE_EDITADO: 'cpu',
+        SOFTWARE_EXCLUIDO: 'cpu',
+        MATRIZ_ATUALIZADA: 'grid-3x3-gap',
+        EXPORTACAO_PDFS_INICIADA: 'file-zip',
+        EXPORTACAO_PDFS_CONCLUIDA: 'file-zip',
+        CONSULTA_REMOTA_VERIFICADA: 'globe2',
     }
 
     # Bootstrap colour for the timeline icon
@@ -64,6 +84,16 @@ class AcaoEvento:
         CONTEUDO_EDITADO_ONLINE: 'primary',
         REPROVADO: 'danger',
         DOCUMENTO_EXCLUIDO: 'danger',
+        DOCUMENTO_EXTERNO_ADICIONADO: 'info',
+        DOCUMENTO_EXTERNO_EDITADO: 'info',
+        DOCUMENTO_EXTERNO_EXCLUIDO: 'danger',
+        SOFTWARE_ADICIONADO: 'primary',
+        SOFTWARE_EDITADO: 'primary',
+        SOFTWARE_EXCLUIDO: 'danger',
+        MATRIZ_ATUALIZADA: 'warning',
+        EXPORTACAO_PDFS_INICIADA: 'warning',
+        EXPORTACAO_PDFS_CONCLUIDA: 'success',
+        CONSULTA_REMOTA_VERIFICADA: 'success',
     }
 
 
@@ -72,7 +102,7 @@ class HistoricoEvento(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     documento_id = db.Column(
-        db.Integer, db.ForeignKey('documentos.id'), nullable=False, index=True
+        db.Integer, db.ForeignKey('documentos.id'), nullable=True, index=True
     )
     usuario_id = db.Column(
         db.Integer, db.ForeignKey('usuarios.id'), nullable=False

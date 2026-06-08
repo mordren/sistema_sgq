@@ -200,6 +200,18 @@
     }
     .digital-signature strong { font-size: 8.5pt; }
 
+    /* ── Search highlight ── */
+    mark.search-highlight {
+      background: #ffeb3b;
+      color: #000;
+      padding: 0 1px;
+      border-radius: 2px;
+    }
+    mark.search-highlight.active {
+      background: #ff9800;
+      color: #fff;
+    }
+
     @page {
       size: A4 portrait;
       margin: 18mm 15mm 15mm 15mm;
@@ -214,6 +226,20 @@
       <strong>{{ codigo }}</strong> — {{ titulo }} — Rev{{ '%02d' % revisao_num }}
     </span>
     <span class="hint">Ctrl+P → "Salvar como PDF" para exportar</span>
+    <!-- ── Busca textual ── -->
+    <div id="search-box" style="display:flex;align-items:center;gap:4px;">
+      <input type="text" id="search-input" placeholder="Buscar no texto…"
+             style="border:1px solid #ccc;border-radius:4px;padding:3px 8px;font-size:12px;width:180px;"
+             title="Buscar dentro do documento">
+      <span id="search-count" style="font-size:11px;color:#ccc;min-width:45px;text-align:center;"></span>
+      <button id="btn-prev" type="button" title="Anterior"
+              style="border:none;background:#495057;color:#fff;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:12px;">▲</button>
+      <button id="btn-next" type="button" title="Próximo"
+              style="border:none;background:#495057;color:#fff;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:12px;">▼</button>
+      <button id="btn-clear" type="button" title="Limpar busca"
+              style="border:none;background:#6c757d;color:#fff;border-radius:4px;padding:3px 6px;cursor:pointer;font-size:12px;display:none;">✕</button>
+    </div>
+    <!-- ── Fim busca ── -->
     <button class="btn-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
     <button class="btn-close2" onclick="window.close()">✕ Fechar</button>
   </div>
@@ -338,6 +364,147 @@
   </div>
 
   <script>
+    // ── Busca textual com destaque ──
+    (function () {
+      var input   = document.getElementById('search-input');
+      var countEl = document.getElementById('search-count');
+      var btnPrev = document.getElementById('btn-prev');
+      var btnNext = document.getElementById('btn-next');
+      var btnClear= document.getElementById('btn-clear');
+      var container = document.querySelector('.page-wrapper');
+
+      var currentIndex = -1;
+      var marks = [];
+
+      function clearHighlights() {
+        for (var i = marks.length - 1; i >= 0; i--) {
+          var m = marks[i];
+          var parent = m.parentNode;
+          if (parent) {
+            parent.replaceChild(document.createTextNode(m.textContent), m);
+            parent.normalize();  // merge adjacent text nodes
+          }
+        }
+        marks = [];
+        currentIndex = -1;
+        countEl.textContent = '';
+        btnClear.style.display = 'none';
+      }
+
+      function getTextNodes(root) {
+        var walker = document.createTreeWalker(
+          root,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode: function (node) {
+              // Skip toolbar, script, style, and empty/whitespace-only text
+              var parent = node.parentNode;
+              if (!parent) return NodeFilter.FILTER_REJECT;
+              if (parent.nodeName === 'SCRIPT' || parent.nodeName === 'STYLE' ||
+                  parent.nodeName === 'NOSCRIPT' || parent.nodeName === 'MARK') {
+                return NodeFilter.FILTER_REJECT;
+              }
+              // Skip nodes inside the toolbar
+              if (parent.closest && parent.closest('#print-toolbar')) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          }
+        );
+        var nodes = [];
+        var n;
+        while ((n = walker.nextNode())) {
+          nodes.push(n);
+        }
+        return nodes;
+      }
+
+      function doSearch() {
+        clearHighlights();
+        var term = input.value.trim();
+        if (!term || term.length < 2) return;
+
+        // Escape regex special chars
+        var escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var regex = new RegExp('(' + escaped + ')', 'gi');
+
+        // Collect ALL text nodes first (snapshot), then process them
+        var textNodes = getTextNodes(container);
+
+        for (var t = 0; t < textNodes.length; t++) {
+          var node = textNodes[t];
+          // Verify node is still in the DOM
+          if (!node.parentNode) continue;
+
+          var text = node.textContent;
+          regex.lastIndex = 0;
+          if (!regex.test(text)) continue;
+
+          regex.lastIndex = 0;
+          var frag = document.createDocumentFragment();
+          var lastIdx = 0;
+          var match;
+          while ((match = regex.exec(text)) !== null) {
+            if (match.index > lastIdx) {
+              frag.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
+            }
+            var mark = document.createElement('mark');
+            mark.className = 'search-highlight';
+            mark.textContent = match[0];
+            frag.appendChild(mark);
+            marks.push(mark);
+            lastIdx = regex.lastIndex;
+            if (match[0].length === 0) { regex.lastIndex++; }
+          }
+          if (lastIdx < text.length) {
+            frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+          }
+          // Replace only if node still has a parent
+          if (node.parentNode) {
+            node.parentNode.replaceChild(frag, node);
+          }
+        }
+
+        // Update counter and navigation
+        if (marks.length > 0) {
+          currentIndex = 0;
+          marks[0].classList.add('active');
+          marks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          countEl.textContent = '1 / ' + marks.length;
+          btnClear.style.display = '';
+        } else {
+          countEl.textContent = '0';
+          btnClear.style.display = '';
+        }
+      }
+
+      function goTo(index) {
+        if (marks.length === 0) return;
+        marks[currentIndex].classList.remove('active');
+        currentIndex = (index + marks.length) % marks.length;
+        marks[currentIndex].classList.add('active');
+        marks[currentIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        countEl.textContent = (currentIndex + 1) + ' / ' + marks.length;
+      }
+
+      input.addEventListener('input', doSearch);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (e.shiftKey) goTo(currentIndex - 1);
+          else goTo(currentIndex + 1);
+        }
+      });
+      btnPrev.addEventListener('click', function () { goTo(currentIndex - 1); });
+      btnNext.addEventListener('click', function () { goTo(currentIndex + 1); });
+      btnClear.addEventListener('click', function () {
+        input.value = '';
+        clearHighlights();
+        input.focus();
+      });
+    }());
+
     // Running header for @page (Chromium/Edge support)
     (function () {
       var codigo  = {{ (codigo  or '') | tojson }};

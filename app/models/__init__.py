@@ -12,6 +12,7 @@ from app.models.lista_mestra_config import ListaMestraConfig
 from app.models.alerta import Alerta
 from app.models.consulta_remota import ConsultaRemota
 from app.models.controle_versao_software import ControleVersaoSoftware
+from app.models.exportacao_lote import ExportacaoLote
 
 __all__ = [
     'Usuario', 'Perfil',
@@ -25,4 +26,5 @@ __all__ = [
     'Alerta',
     'ConsultaRemota',
     'ControleVersaoSoftware',
+    'ExportacaoLote',
 ]

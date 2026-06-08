@@ -1,5 +1,12 @@
-from flask import render_template, redirect, url_for, flash, request, abort, session
+from flask import (
+    render_template, redirect, url_for, flash, request, abort, session,
+    send_file, current_app,
+)
 from flask_login import login_required, current_user
+import os
+import threading
+import zipfile
+
 from app.main import main
 from app.models import (
     Documento,
@@ -10,8 +17,11 @@ from app.models import (
     Alerta,
 )
 from app.models.documento import StatusDocumento
+from app.models.exportacao_lote import ExportacaoLote
 from app.extensions import db
 from app.utils.decorators import bloquear_auditor
+from app.utils.datetime_utils import agora_brasilia
+from app.utils.historico import registrar_evento
 
 
 @main.route('/')
@@ -68,6 +78,7 @@ def dashboard():
     docs_vigentes_sem_pdf = Documento.query.filter(
         Documento.status == StatusDocumento.VIGENTE,
         Documento.caminho_pdf_vigente.is_(None),
+        Documento.content_html.is_(None),  # online-editor docs generate PDF on-the-fly
         Documento.ativo == True,
     ).count()
     if docs_vigentes_sem_pdf:
@@ -327,3 +338,227 @@ def usuario_toggle_ativo(id):
     msg = 'Usuário ativado.' if u.ativo else 'Usuário desativado.'
     flash(msg, 'success')
     return redirect(url_for('main.usuarios'))
+
+
+# ── Exportação em Lote de PDFs ────────────────────────────────────────────────
+
+def _exportar_pdfs_background(app, export_id: int) -> None:
+    """Background task: ZIP all vigente PDFs and update the export record."""
+
+    def _run():
+        with app.app_context():
+            from app.extensions import db
+            from app.models.exportacao_lote import ExportacaoLote
+            from sqlalchemy import or_
+            import tempfile
+
+            export = db.session.get(ExportacaoLote, export_id)
+            if not export:
+                return
+
+            try:
+                vigentes_dir = app.config['VIGENTES_PDF_DIR']
+                exportacoes_dir = app.config['EXPORTACOES_DIR']
+                os.makedirs(exportacoes_dir, exist_ok=True)
+
+                # Query ALL vigente documents: stored PDFs OR online-edited HTML
+                docs = (
+                    Documento.query
+                    .filter(
+                        Documento.ativo == True,
+                        Documento.status == StatusDocumento.VIGENTE,
+                        or_(
+                            Documento.caminho_pdf_vigente.isnot(None),
+                            Documento.content_html.isnot(None),
+                        ),
+                    )
+                    .order_by(Documento.tipo_documento, Documento.codigo)
+                    .all()
+                )
+
+                export.total_documentos = len(docs)
+
+                stamp = agora_brasilia().strftime('%Y%m%d_%H%M%S')
+                zip_filename = f'exportacao_sgq_{stamp}.zip'
+                zip_path = os.path.join(exportacoes_dir, zip_filename)
+
+                # Temp directory for generated PDFs from HTML
+                tmpdir = tempfile.mkdtemp(prefix='sgq_export_')
+                arquivos_temp = []
+
+                def _add_com_doc(zf, doc, arcname):
+                    """Add a document PDF to the ZIP with header/footer overlay."""
+                    from app.utils.html_pdf import (
+                        gerar_pdf_de_html, metadata_from_documento,
+                        _overlay_header_footer_to_buffer,
+                    )
+
+                    meta = metadata_from_documento(doc)
+
+                    # 1) Stored PDF — copy + overlay
+                    if doc.caminho_pdf_vigente:
+                        pdf_path = os.path.join(vigentes_dir, doc.caminho_pdf_vigente)
+                        if os.path.isfile(pdf_path):
+                            buf = _overlay_header_footer_to_buffer(pdf_path, meta)
+                            if buf:
+                                zf.writestr(arcname, buf.getvalue())
+                            else:
+                                # Fallback: use original without overlay
+                                zf.write(pdf_path, arcname)
+                            return True
+
+                    # 2) Online-edited — generate PDF + overlay
+                    if doc.content_html:
+                        tmp_pdf = os.path.join(tmpdir, f'{doc.id}.pdf')
+                        ok = gerar_pdf_de_html(doc.content_html, meta, tmp_pdf)
+                        if ok and os.path.isfile(tmp_pdf):
+                            # Apply overlay with headers/footers
+                            buf = _overlay_header_footer_to_buffer(tmp_pdf, meta)
+                            if buf:
+                                zf.writestr(arcname, buf.getvalue())
+                            else:
+                                zf.write(tmp_pdf, arcname)
+                            arquivos_temp.append(tmp_pdf)
+                            return True
+
+                    return False
+
+                try:
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        for doc in docs:
+                            arcname = (
+                                f'{doc.tipo_documento}/'
+                                f'{doc.codigo}_Rev{doc.revisao_atual:02d}.pdf'
+                            )
+                            _add_com_doc(zf, doc, arcname)
+                finally:
+                    # Clean up temp files
+                    for f in arquivos_temp:
+                        try:
+                            os.remove(f)
+                        except Exception:
+                            pass
+                    try:
+                        os.rmdir(tmpdir)
+                    except Exception:
+                        pass
+
+                export.tamanho_bytes = os.path.getsize(zip_path)
+                export.arquivo_zip = zip_filename
+                export.status = 'concluido'
+                export.concluido_em = agora_brasilia()
+                registrar_evento(
+                    usuario_id=export.criado_por_id,
+                    acao='Exportação de PDFs em lote concluída',
+                    descricao=f'{export.total_documentos} PDFs — {zip_filename}',
+                )
+                db.session.commit()
+
+            except Exception as exc:
+                export.status = 'falhou'
+                export.erro = str(exc)[:500]
+                export.concluido_em = agora_brasilia()
+                registrar_evento(
+                    usuario_id=export.criado_por_id,
+                    acao='Exportação de PDFs em lote concluída',
+                    descricao=f'Falhou: {str(exc)[:100]}',
+                )
+                db.session.commit()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+
+@main.route('/admin/exportar-pdfs')
+@login_required
+def exportar_pdfs():
+    """Page to trigger and download bulk PDF exports."""
+    if not current_user.pode_gerenciar_usuarios():
+        abort(403)
+
+    exportacoes = (
+        ExportacaoLote.query
+        .order_by(ExportacaoLote.criado_em.desc())
+        .limit(50)
+        .all()
+    )
+
+    return render_template(
+        'main/exportar_pdfs.html',
+        title='Exportar PDFs em Lote',
+        exportacoes=exportacoes,
+    )
+
+
+@main.route('/admin/exportar-pdfs/iniciar', methods=['POST'])
+@login_required
+def iniciar_exportacao_pdfs():
+    """Start a new background PDF export."""
+    if not current_user.pode_gerenciar_usuarios():
+        abort(403)
+
+    export = ExportacaoLote(
+        status='processando',
+        criado_por_id=current_user.id,
+    )
+    db.session.add(export)
+    registrar_evento(
+        usuario_id=current_user.id,
+        acao='Exportação de PDFs em lote iniciada',
+        descricao='Gerando ZIP com todos os PDFs vigentes...',
+    )
+    db.session.commit()
+
+    _exportar_pdfs_background(current_app._get_current_object(), export.id)
+
+    flash('Exportação iniciada em segundo plano. Esta página será atualizada automaticamente quando terminar.', 'info')
+    return redirect(url_for('main.exportar_pdfs'))
+
+
+@main.route('/admin/exportar-pdfs/download/<int:id>')
+@login_required
+def download_exportacao_pdfs(id):
+    """Download a completed ZIP export."""
+    if not current_user.pode_gerenciar_usuarios():
+        abort(403)
+
+    export = ExportacaoLote.query.get_or_404(id)
+
+    if export.status != 'concluido' or not export.arquivo_zip:
+        flash('Exportação ainda não está pronta para download.', 'warning')
+        return redirect(url_for('main.exportar_pdfs'))
+
+    exportacoes_dir = current_app.config['EXPORTACOES_DIR']
+    zip_path = os.path.join(exportacoes_dir, export.arquivo_zip)
+
+    if not os.path.isfile(zip_path):
+        flash('Arquivo não encontrado no servidor.', 'danger')
+        return redirect(url_for('main.exportar_pdfs'))
+
+    return send_file(
+        zip_path,
+        as_attachment=True,
+        download_name=export.arquivo_zip,
+        mimetype='application/zip',
+    )
+
+
+@main.route('/admin/exportar-pdfs/cancelar/<int:id>', methods=['POST'])
+@login_required
+def cancelar_exportacao_pdfs(id):
+    """Cancel a processing export job."""
+    if not current_user.pode_gerenciar_usuarios():
+        abort(403)
+
+    export = ExportacaoLote.query.get_or_404(id)
+
+    if export.status != 'processando':
+        flash('Apenas exportações em processamento podem ser canceladas.', 'warning')
+        return redirect(url_for('main.exportar_pdfs'))
+
+    export.status = 'falhou'
+    export.erro = 'Cancelado pelo usuário.'
+    export.concluido_em = agora_brasilia()
+    db.session.commit()
+    flash('Exportação cancelada.', 'info')
+    return redirect(url_for('main.exportar_pdfs'))

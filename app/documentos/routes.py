@@ -1127,6 +1127,12 @@ def importar_matriz():
 
         if acao == 'importar' and linhas_parsed:
             resultado = _importar_linhas_matriz(linhas_parsed)
+            registrar_evento(
+                usuario_id=current_user.id,
+                acao=AcaoEvento.MATRIZ_ATUALIZADA,
+                descricao=f'{resultado["atualizados"]} doc(s) atualizado(s), '
+                          f'{resultado["diretos"]} linha(s) direta(s)',
+            )
             flash(
                 f'Importação concluída: {resultado["atualizados"]} documento(s) atualizado(s), '
                 f'{resultado["diretos"]} linha(s) sem procedimento registrada(s) diretamente.',
@@ -1164,7 +1170,7 @@ def lista_mestra():
         StatusDocumento.CANCELADO,
     ]
     from sqlalchemy import or_
-    docs = (
+    query = (
         Documento.query
         .filter(
             Documento.ativo == True,
@@ -1174,9 +1180,19 @@ def lista_mestra():
                 Documento.content_html.isnot(None),
             ),
         )
-        .order_by(*_order_by_tipo_codigo())
-        .all()
     )
+
+    # ── Filtro por busca textual ──
+    q = (request.args.get('q', '') or '').strip()
+    if q:
+        query = query.filter(
+            or_(
+                Documento.codigo.ilike(f'%{q}%'),
+                Documento.titulo.ilike(f'%{q}%'),
+            )
+        )
+
+    docs = query.order_by(*_order_by_tipo_codigo()).all()
     cfg = ListaMestraConfig.get()
     pode_configurar = current_user.pode_aprovar() or current_user.perfil == Perfil.ADMINISTRADOR
     docs_externos = (
@@ -1221,6 +1237,7 @@ def lista_mestra():
         consultas_meses=_MESES_LM,
         consultas_ano=ano_lm,
         versao_software=versao_software,
+        q_f=q,
     )
 
 
@@ -2979,6 +2996,11 @@ def documentos_externos():
             data_envio=agora_brasilia(),
         )
         db.session.add(novo)
+        registrar_evento(
+            usuario_id=current_user.id,
+            acao=AcaoEvento.DOCUMENTO_EXTERNO_ADICIONADO,
+            descricao=f'{codigo_novo or titulo_novo} — {form.orgao_emissor.data or "Sem órgão"}',
+        )
         db.session.commit()
         flash('Documento externo registrado com sucesso!', 'success')
         return redirect(url_for('documentos.documentos_externos'))
@@ -3061,6 +3083,11 @@ def editar_externo(id):
         arq.save(os.path.join(ext_dir, arquivo_nome))
         doc.arquivo_pdf = arquivo_nome
 
+    registrar_evento(
+        usuario_id=current_user.id,
+        acao=AcaoEvento.DOCUMENTO_EXTERNO_EDITADO,
+        descricao=f'{doc.codigo or doc.titulo} — {doc.orgao_emissor or "Sem órgão"}',
+    )
     db.session.commit()
     flash('Documento externo atualizado!', 'success')
     return redirect(url_for('documentos.documentos_externos'))
@@ -3088,6 +3115,11 @@ def excluir_externo(id):
                 'Não foi possível remover arquivo %s', caminho
             )
 
+    registrar_evento(
+        usuario_id=current_user.id,
+        acao=AcaoEvento.DOCUMENTO_EXTERNO_EXCLUIDO,
+        descricao=f'{codigo_ou_titulo}',
+    )
     db.session.delete(doc)
     db.session.commit()
     flash(

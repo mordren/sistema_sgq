@@ -8,6 +8,8 @@ from app.extensions import db
 from app.models.consulta_remota import ConsultaRemota
 from app.utils.datetime_utils import agora_brasilia
 from app.utils.decorators import bloquear_auditor
+from app.utils.historico import registrar_evento
+from app.models.historico import AcaoEvento
 
 _MESES = [
     (1, 'JAN'), (2, 'FEV'), (3, 'MAR'), (4, 'ABR'),
@@ -106,12 +108,19 @@ def consultas_remotas():
                 )
                 db.session.add(registro)
             else:
+                # Só atualiza o responsável se a quinzena NÃO estava verificada antes
+                if not registro.verificado:
+                    registro.verificado_por_id = current_user.id
+                    registro.verificado_em = agora
                 registro.verificado = True
-                registro.verificado_em = agora
-                registro.verificado_por_id = current_user.id
                 registro.atualizado_em = agora
             salvos += 1
 
+        registrar_evento(
+            usuario_id=current_user.id,
+            acao=AcaoEvento.CONSULTA_REMOTA_VERIFICADA,
+            descricao=f'{salvos} quinzena(s) verificada(s) em {ano}',
+        )
         db.session.commit()
         flash('Consultas remotas salvas com sucesso.', 'success')
         return redirect(url_for('atividades.consultas_remotas', ano=ano))
@@ -177,6 +186,11 @@ def controle_versao_software():
             versao=versao,
         )
         db.session.add(registro)
+        registrar_evento(
+            usuario_id=current_user.id,
+            acao=AcaoEvento.SOFTWARE_ADICIONADO,
+            descricao=f'{equipamento} — {software} v{versao}',
+        )
         db.session.commit()
         flash('Registro adicionado com sucesso!', 'success')
         return redirect(url_for('atividades.controle_versao_software'))
@@ -226,6 +240,11 @@ def editar_versao_software(id):
     registro.equipamento = equipamento
     registro.software = software
     registro.versao = versao
+    registrar_evento(
+        usuario_id=current_user.id,
+        acao=AcaoEvento.SOFTWARE_EDITADO,
+        descricao=f'{equipamento} — {software} v{versao}',
+    )
     db.session.commit()
     flash('Registro atualizado com sucesso!', 'success')
     return redirect(url_for('atividades.controle_versao_software'))
@@ -242,6 +261,11 @@ def excluir_versao_software(id):
 
     registro = ControleVersaoSoftware.query.get_or_404(id)
     nome = f'{registro.equipamento} – {registro.software}'
+    registrar_evento(
+        usuario_id=current_user.id,
+        acao=AcaoEvento.SOFTWARE_EXCLUIDO,
+        descricao=nome,
+    )
     db.session.delete(registro)
     db.session.commit()
     flash(f'Registro "{nome}" excluído permanentemente.', 'success')

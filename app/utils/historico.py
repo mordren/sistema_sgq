@@ -8,12 +8,16 @@ from app.models.historico import HistoricoEvento
 
 
 def registrar_evento(
-    documento_id: int,
-    usuario_id: int,
-    acao: str,
+    documento_id: int | None = None,
+    usuario_id: int | None = None,
+    acao: str = '',
     descricao: str | None = None,
 ) -> None:
-    """Stage a HistoricoEvento. Must call db.session.commit() afterwards."""
+    """Stage a HistoricoEvento. Must call db.session.commit() afterwards.
+
+    documento_id can be None for events not tied to a specific document
+    (e.g. external documents, software version control, PDF exports).
+    """
     try:
         from flask import request
         ip = request.environ.get('REMOTE_ADDR', 'unknown')

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Exportar PDFs em Lote – SGQ{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-4 flex-wrap gap-3">
+  <div>
+    <h2 class="h4 fw-bold mb-0">
+      <i class="bi bi-file-zip me-2 text-warning"></i>Exportar PDFs em Lote
+    </h2>
+    <p class="text-muted small mb-0">
+      Gere um arquivo ZIP com todos os PDFs vigentes (MQ, PA, PT, IT, FOR ADM, FOR TEC).
+    </p>
+  </div>
+  <form method="POST" action="{{ url_for('main.iniciar_exportacao_pdfs') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-warning">
+      <i class="bi bi-lightning-charge me-1"></i>Iniciar Exportação
+    </button>
+  </form>
+</div>
+
+{# ── Processing alert ── #}
+{% set tem_processando = exportacoes | selectattr('status', 'equalto', 'processando') | list | length > 0 %}
+{% if tem_processando %}
+<div class="alert alert-info d-flex align-items-center gap-2 mb-4" role="alert">
+  <div class="spinner-border spinner-border-sm flex-shrink-0" role="status"></div>
+  <div>
+    <strong>Exportação em andamento...</strong>
+    Esta página será atualizada automaticamente. Não feche o navegador.
+  </div>
+</div>
+{% endif %}
+
+{# ── Export history ── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-sgq-dark text-white d-flex justify-content-between align-items-center">
+    <span class="fw-bold small">
+      <i class="bi bi-clock-history me-2"></i>HISTÓRICO DE EXPORTAÇÕES
+    </span>
+    <span class="badge bg-light text-dark ms-2">{{ exportacoes | length }} registro(s)</span>
+  </div>
+
+  {% if exportacoes %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover table-sm align-middle mb-0">
+      <thead>
+        <tr class="table-dark">
+          <th class="text-center" style="width:4rem;">#</th>
+          <th>Status</th>
+          <th class="text-center">Documentos</th>
+          <th class="text-center">Tamanho</th>
+          <th>Solicitado por</th>
+          <th class="text-center">Data</th>
+          <th class="text-center">Concluído em</th>
+          <th class="text-center" style="width:5rem;">Download</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for exp in exportacoes %}
+        <tr>
+          <td class="text-center small text-muted">{{ exp.id }}</td>
+          <td>
+            {% if exp.status == 'processando' %}
+              <span class="badge bg-info">
+                <span class="spinner-border spinner-border-sm me-1" style="width:0.7rem;height:0.7rem;"></span>
+                Processando...
+              </span>
+            {% elif exp.status == 'concluido' %}
+              <span class="badge bg-success">
+                <i class="bi bi-check-circle me-1"></i>Concluído
+              </span>
+            {% else %}
+              <span class="badge bg-danger" title="{{ exp.erro or '' }}">
+                <i class="bi bi-exclamation-circle me-1"></i>Falhou
+              </span>
+              {% if exp.erro %}
+                <br><small class="text-danger">{{ exp.erro[:100] }}</small>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td class="text-center small">{{ exp.total_documentos }}</td>
+          <td class="text-center small text-nowrap">{{ exp.tamanho_formatado }}</td>
+          <td class="small">{{ exp.criado_por.nome if exp.criado_por else '—' }}</td>
+          <td class="text-center small text-nowrap">
+            {{ exp.criado_em.strftime('%d/%m/%Y %H:%M') if exp.criado_em else '—' }}
+          </td>
+          <td class="text-center small text-nowrap">
+            {{ exp.concluido_em.strftime('%d/%m/%Y %H:%M') if exp.concluido_em else '—' }}
+          </td>
+          <td class="text-center">
+            {% if exp.status == 'concluido' and exp.arquivo_zip %}
+            <a href="{{ url_for('main.download_exportacao_pdfs', id=exp.id) }}"
+               class="btn btn-sm btn-outline-success py-0 px-2"
+               title="Baixar ZIP">
+              <i class="bi bi-download"></i>
+            </a>
+            {% elif exp.status == 'processando' %}
+            <form method="POST" action="{{ url_for('main.cancelar_exportacao_pdfs', id=exp.id) }}"
+                  class="d-inline" onsubmit="return confirm('Cancelar esta exportação?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2"
+                      title="Cancelar exportação">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </form>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-file-zip display-4 d-block mb-3"></i>
+    <p class="mb-1">Nenhuma exportação realizada ainda.</p>
+    <p class="small">Clique em <strong>Iniciar Exportação</strong> para gerar o primeiro arquivo ZIP.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+{% if tem_processando %}
+<script>
+// Auto-refresh while processing
+setTimeout(function () {
+  window.location.reload();
+}, 5000);
+</script>
+{% endif %}
+{% endblock %}
