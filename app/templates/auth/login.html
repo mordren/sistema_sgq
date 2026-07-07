@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Login – SGQ CSV Cascavel{% endblock %}
+{% block title %}Login – SGQ Inspevel Cascavel{% endblock %}
 
 {% block auth_content %}
 <div class="min-vh-100 d-flex align-items-center justify-content-center login-bg">
@@ -9,7 +9,7 @@
     <!-- Header -->
     <div class="card-header login-header text-center py-4">
       <i class="bi bi-shield-check display-4 text-white mb-2 d-block"></i>
-      <h1 class="h4 text-white mb-0 fw-bold">SGQ CSV Cascavel</h1>
+      <h1 class="h4 text-white mb-0 fw-bold">SGQ Inspevel Cascavel</h1>
       <p class="text-white-50 small mt-1 mb-0">Sistema de Gestão da Qualidade</p>
     </div>
 
@@ -39,7 +39,7 @@
           {{ form.email(
               class="form-control" ~ (" is-invalid" if form.email.errors else ""),
               id="email",
-              placeholder="usuario@csvcascavel.com.br",
+              placeholder="usuario@inspevel.com.br",
               autocomplete="email"
           ) }}
           {% for error in form.email.errors %}

@@ -1482,6 +1482,26 @@ def detalhe(id):
 
     revisor_global = Usuario.revisor_padrao_ativo()
 
+    # ── Correction state: has the admin already sent for approval? ─────────
+    correcao_enviada = False
+    if doc.correcao_pendente:
+        ultimo_correcao = (
+            HistoricoEvento.query
+            .filter(
+                HistoricoEvento.documento_id == id,
+                HistoricoEvento.acao.in_([
+                    AcaoEvento.CORRECAO_ABERTA,
+                    AcaoEvento.CORRECAO_EDITADA,
+                    AcaoEvento.CORRECAO_ENVIADA_APROVACAO,
+                    AcaoEvento.CORRECAO_REPROVADA,
+                ]),
+            )
+            .order_by(HistoricoEvento.data_evento.desc())
+            .first()
+        )
+        if ultimo_correcao and ultimo_correcao.acao == AcaoEvento.CORRECAO_ENVIADA_APROVACAO:
+            correcao_enviada = True
+
     return render_template(
         'documentos/detalhe.html',
         title=f'{doc.codigo} – {doc.titulo}',
@@ -1504,6 +1524,8 @@ def detalhe(id):
         pode_abrir_revisao=current_user.pode_abrir_revisao(),
         pode_revisar=current_user.pode_revisar(),
         pode_aprovar_doc=current_user.pode_aprovar(),
+        correcao_pendente=doc.correcao_pendente,
+        correcao_enviada=correcao_enviada,
         StatusDocumento=StatusDocumento,
         TipoDocumento=TipoDocumento,
     )
@@ -1515,6 +1537,12 @@ def detalhe(id):
 @login_required
 @bloquear_auditor
 def editar(id):
+    # ── Correction mode (admin only) ───────────────────────────────────────────
+    correcao_mode = (
+        request.args.get('correcao', '0') == '1'
+        and current_user.perfil == Perfil.ADMINISTRADOR
+    )
+
     # Metadata-only edit (title + matrix) allowed for Admin/Qualidade on any status.
     # Full content/workflow edits still require pode_editar_documentos().
     pode_meta = current_user.pode_editar_metadados()
@@ -1525,7 +1553,91 @@ def editar(id):
 
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
 
-    # Metadata-only mode: document is VIGENTE (or not editable by full editors)
+    # Correction mode: admin editing a Vigente doc without revision bump
+    if correcao_mode:
+        if not doc.correcao_pendente:
+            flash('Nenhuma correção pendente para este documento.', 'warning')
+            return redirect(url_for('documentos.detalhe', id=id))
+
+        _ensure_documento_matriz_schema()
+        form = EditarDocumentoForm()
+
+        # Pre-populate from draft metadata if available, else from doc
+        if request.method == 'GET':
+            if doc.correcao_metadados_json:
+                try:
+                    draft_data = json.loads(doc.correcao_metadados_json)
+                except (TypeError, ValueError):
+                    draft_data = {}
+            else:
+                draft_data = {}
+            form.titulo.data = draft_data.get('titulo', doc.titulo)
+            form.tipo_documento.data = draft_data.get('tipo_documento', doc.tipo_documento)
+            form.requisito_relacionado.data = draft_data.get(
+                'requisito_relacionado', doc.requisito_relacionado or ''
+            )
+            form.distribuicao_tecnica.data = draft_data.get(
+                'distribuicao_tecnica', doc.distribuicao_tecnica
+            )
+            form.distribuicao_administrativa.data = draft_data.get(
+                'distribuicao_administrativa', doc.distribuicao_administrativa
+            )
+            form.requer_treinamento.data = draft_data.get(
+                'requer_treinamento', doc.requer_treinamento
+            )
+            form.observacao.data = draft_data.get('observacao', doc.observacao or '')
+            form.matriz_correlacao_json.data = draft_data.get(
+                'matriz_correlacao_json', doc.matriz_correlacao_json or ''
+            )
+
+        form.tipo_documento.choices = _choices_tipos()
+        formularios_choices = _formularios_choices()
+
+        if form.validate_on_submit():
+            matriz_json = _normalize_matriz_json(form.matriz_correlacao_json.data)
+            # Save draft metadata as JSON (do NOT apply to doc yet)
+            draft = {
+                'titulo': form.titulo.data.strip(),
+                'tipo_documento': form.tipo_documento.data,
+                'requisito_relacionado': form.requisito_relacionado.data.strip() if form.requisito_relacionado.data else '',
+                'matriz_correlacao_json': matriz_json or '',
+                'distribuicao_tecnica': form.distribuicao_tecnica.data,
+                'distribuicao_administrativa': form.distribuicao_administrativa.data,
+                'requer_treinamento': form.requer_treinamento.data,
+                'observacao': form.observacao.data.strip() if form.observacao.data else '',
+            }
+            doc.correcao_metadados_json = json.dumps(draft, ensure_ascii=False)
+            doc.atualizado_em = agora_brasilia()
+
+            registrar_evento(
+                doc.id, current_user.id,
+                AcaoEvento.CORRECAO_EDITADA,
+                f'Metadados da correção editados por {current_user.nome}.',
+            )
+            db.session.commit()
+
+            flash('Rascunho da correção salvo com sucesso!', 'success')
+            return redirect(url_for('documentos.detalhe', id=id))
+
+        if request.method == 'POST' and form.errors:
+            erros = '; '.join(
+                f'{field}: {', '.join(errs)}'
+                for field, errs in form.errors.items()
+            )
+            current_app.logger.warning('editar (correção) validation failed: %s', erros)
+            flash(f'Erro ao salvar: {erros}', 'danger')
+
+        return render_template(
+            'documentos/editar.html',
+            title=f'Correção – {doc.codigo}',
+            form=form,
+            doc=doc,
+            formularios_choices=formularios_choices,
+            metadata_only=False,
+            correcao_mode=True,
+        )
+
+    # ── Normal mode (metadata-only or full edit) ─────────────────────────────
     metadata_only = doc.status == StatusDocumento.VIGENTE
 
     if metadata_only and not pode_meta:
@@ -1585,6 +1697,7 @@ def editar(id):
         doc=doc,
         formularios_choices=formularios_choices,
         metadata_only=metadata_only,
+        correcao_mode=False,
     )
 
 
@@ -2627,9 +2740,47 @@ def _build_historico_revisoes(doc, incluir_revisao=None) -> list:
 @documentos.route('/<int:id>/editor', methods=['GET', 'POST'])
 @login_required
 def editor_documento(id):
-    """Online editor page for a Rascunho document."""
+    """Online editor page for a Rascunho document, or correction draft."""
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
 
+    # ── Correction mode (admin) ─────────────────────────────────────────────
+    if request.args.get('correcao', '0') == '1':
+        if current_user.perfil != Perfil.ADMINISTRADOR or not doc.correcao_pendente:
+            abort(403)
+
+        form = EditorConteudoForm()
+
+        if form.validate_on_submit():
+            doc.correcao_content_html = form.content_html.data
+            doc.atualizado_em = agora_brasilia()
+            registrar_evento(
+                doc.id, current_user.id,
+                AcaoEvento.CORRECAO_EDITADA,
+                f'Conteúdo da correção editado por {current_user.nome}.',
+            )
+            db.session.commit()
+            flash('Conteúdo da correção salvo com sucesso!', 'success')
+            if request.form.get('_next') == 'preview':
+                return redirect(url_for('documentos.preview_documento', id=id, correcao=1))
+            return redirect(url_for('documentos.editor_documento', id=id, correcao=1))
+        elif request.method == 'POST':
+            erros = '; '.join(e for errs in form.errors.values() for e in errs)
+            flash(f'Erro ao salvar: {erros}', 'danger')
+
+        if request.method == 'GET' and doc.correcao_content_html:
+            form.content_html.data = doc.correcao_content_html
+
+        return render_template(
+            'documentos/editor.html',
+            doc=doc,
+            form=form,
+            action_url=url_for('documentos.editor_documento', id=id, correcao=1),
+            preview_url=url_for('documentos.preview_documento', id=id, correcao=1),
+            back_url=url_for('documentos.detalhe', id=id),
+            titulo_editor='Editar Conteúdo — Correção (Admin)',
+        )
+
+    # ── Normal mode (Rascunho) ──────────────────────────────────────────────
     if doc.status != StatusDocumento.RASCUNHO:
         flash('O editor online só está disponível para documentos em Rascunho.', 'warning')
         return redirect(url_for('documentos.detalhe', id=id))
@@ -2791,9 +2942,39 @@ def imprimir_revisao(id, rev_id):
 @login_required
 @bloquear_auditor
 def preview_documento(id):
-    """Preview online content of a Rascunho document."""
+    """Preview online content of a Rascunho document, or correction draft."""
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
 
+    # ── Correction mode preview ─────────────────────────────────────────────
+    if request.args.get('correcao', '0') == '1':
+        if not doc.correcao_content_html:
+            flash('Não há conteúdo de correção para visualizar.', 'warning')
+            return redirect(url_for('documentos.detalhe', id=id))
+        return render_template(
+            'documentos/preview_online.html',
+            doc=doc,
+            revisao=None,
+            titulo=doc.titulo,
+            codigo=doc.codigo,
+            revisao_num=doc.revisao_atual,
+            status='Correção pendente',
+            content_html=doc.correcao_content_html,
+            historico_revisoes=_build_historico_revisoes(doc),
+            back_url=url_for('documentos.detalhe', id=id),
+            publicar_form=None,
+            aprovar_form=None,
+            reprovar_form=None,
+            enviar_aprovacao_form=None,
+            pode_publicar=False,
+            pode_aprovar_doc=False,
+            pode_editar=current_user.pode_editar_documentos(),
+            tem_aprovadores=False,
+            revisao_ativa=None,
+            revisor_global=Usuario.revisor_padrao_ativo(),
+            correcao_mode=True,
+        )
+
+    # ── Normal mode ─────────────────────────────────────────────────────────
     if not doc.content_html:
         flash('Não há conteúdo online para visualizar.', 'warning')
         return redirect(url_for('documentos.detalhe', id=id))
@@ -2832,6 +3013,7 @@ def preview_documento(id):
         tem_aprovadores=current_user.pode_aprovar(),
         revisao_ativa=None,
         revisor_global=Usuario.revisor_padrao_ativo(),
+        correcao_mode=False,
     )
 
 
@@ -3214,4 +3396,222 @@ def editor_serve_imagem(filename):
         abort(404)
 
     return send_file(caminho)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CORREÇÃO (ADMIN) — small fix without revision bump
+# ══════════════════════════════════════════════════════════════════════════════
+
+@documentos.route('/<int:id>/reabrir-correcao', methods=['POST'])
+@login_required
+def reabrir_correcao(id):
+    """Admin opens a correction for a Vigente document (no revision bump)."""
+    if current_user.perfil != Perfil.ADMINISTRADOR:
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    if doc.status != StatusDocumento.VIGENTE:
+        flash('A correção só pode ser aberta em documentos Vigentes.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    if doc.correcao_pendente:
+        flash('Já existe uma correção pendente para este documento.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # Check no active revision in progress
+    revisao_ativa = (
+        RevisaoDocumento.query
+        .filter(
+            RevisaoDocumento.documento_id == id,
+            RevisaoDocumento.status.notin_([
+                StatusDocumento.VIGENTE, StatusDocumento.OBSOLETO,
+                StatusDocumento.CANCELADO,
+            ]),
+        )
+        .first()
+    )
+    if revisao_ativa:
+        flash(
+            'Não é possível abrir correção: existe uma revisão em andamento.',
+            'warning',
+        )
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # Must have some content to fix
+    if not (doc.content_mode == 'online_editor' and doc.content_html) and \
+            not (doc.content_mode == 'uploaded_file' and doc.caminho_pdf_vigente):
+        flash('Documento sem conteúdo. Não é possível abrir correção.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # Seed draft content_html from current doc content
+    doc.correcao_pendente = True
+    if doc.content_mode == 'online_editor' and doc.content_html:
+        doc.correcao_content_html = doc.content_html
+    doc.correcao_metadados_json = None  # start fresh — will be filled on editar save
+    doc.atualizado_em = agora_brasilia()
+
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.CORRECAO_ABERTA,
+        f'Correção aberta por {current_user.nome}.',
+    )
+    db.session.commit()
+
+    flash('Correção aberta. Edite os metadados e/ou conteúdo e envie para aprovação.', 'success')
+    return redirect(url_for('documentos.editar', id=id, correcao=1))
+
+
+@documentos.route('/<int:id>/cancelar-correcao', methods=['POST'])
+@login_required
+def cancelar_correcao(id):
+    """Admin cancels a pending correction, discarding all draft data."""
+    if current_user.perfil != Perfil.ADMINISTRADOR:
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    if not doc.correcao_pendente:
+        flash('Não há correção pendente para cancelar.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    doc.correcao_pendente = False
+    doc.correcao_content_html = None
+    doc.correcao_metadados_json = None
+    doc.atualizado_em = agora_brasilia()
+
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.CORRECAO_CANCELADA,
+        f'Correção cancelada por {current_user.nome}.',
+    )
+    db.session.commit()
+
+    flash('Correção cancelada. Rascunho descartado.', 'info')
+    return redirect(url_for('documentos.detalhe', id=id))
+
+
+@documentos.route('/<int:id>/enviar-correcao-aprovacao', methods=['POST'])
+@login_required
+def enviar_correcao_aprovacao(id):
+    """Admin sends the pending correction for approval."""
+    if current_user.perfil != Perfil.ADMINISTRADOR:
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    if not doc.correcao_pendente:
+        flash('Não há correção pendente para enviar.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # Must have either content_html or metadata changes
+    if not doc.correcao_content_html and not doc.correcao_metadados_json:
+        flash(
+            'A correção precisa ter conteúdo (editor online) ou alterações de metadados '
+            'antes de ser enviada para aprovação.',
+            'warning',
+        )
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.CORRECAO_ENVIADA_APROVACAO,
+        f'Correção enviada para aprovação por {current_user.nome}.',
+    )
+    db.session.commit()
+
+    flash('Correção enviada para aprovação.', 'success')
+    return redirect(url_for('documentos.detalhe', id=id))
+
+
+@documentos.route('/<int:id>/aprovar-correcao', methods=['POST'])
+@login_required
+def aprovar_correcao(id):
+    """Approve a pending correction — applies draft data to the document."""
+    if not current_user.pode_aprovar():
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    if not doc.correcao_pendente:
+        flash('Não há correção pendente para aprovar.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    # ── Apply content ───────────────────────────────────────────────────────
+    if doc.correcao_content_html:
+        doc.content_html = doc.correcao_content_html
+        doc.content_mode = 'online_editor'
+
+    # ── Apply metadata ──────────────────────────────────────────────────────
+    if doc.correcao_metadados_json:
+        try:
+            draft = json.loads(doc.correcao_metadados_json)
+        except (TypeError, ValueError):
+            draft = {}
+        if draft.get('titulo'):
+            doc.titulo = draft['titulo']
+        if draft.get('tipo_documento'):
+            doc.tipo_documento = draft['tipo_documento']
+        if 'requisito_relacionado' in draft:
+            doc.requisito_relacionado = _resumo_requisitos_matriz(
+                draft.get('matriz_correlacao_json'),
+                draft.get('requisito_relacionado'),
+            )
+        if 'matriz_correlacao_json' in draft:
+            doc.matriz_correlacao_json = _normalize_matriz_json(draft.get('matriz_correlacao_json'))
+        doc.distribuicao_tecnica = draft.get('distribuicao_tecnica', doc.distribuicao_tecnica)
+        doc.distribuicao_administrativa = draft.get('distribuicao_administrativa', doc.distribuicao_administrativa)
+        doc.requer_treinamento = draft.get('requer_treinamento', doc.requer_treinamento)
+        if draft.get('observacao'):
+            doc.observacao = draft['observacao']
+
+    # ── Clear correction flags (revision number does NOT change) ────────────
+    doc.correcao_pendente = False
+    doc.correcao_content_html = None
+    doc.correcao_metadados_json = None
+    doc.atualizado_em = agora_brasilia()
+    # Document stays Vigente
+
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.CORRECAO_APROVADA,
+        f'Correção aprovada por {current_user.nome}. '
+        f'Revisão {doc.revisao_formatada} mantida.',
+    )
+    db.session.commit()
+
+    flash('Correção aprovada! Conteúdo e metadados atualizados.', 'success')
+    return redirect(url_for('documentos.detalhe', id=id))
+
+
+@documentos.route('/<int:id>/reprovar-correcao', methods=['POST'])
+@login_required
+def reprovar_correcao(id):
+    """Reprove a pending correction — keeps draft for rework."""
+    if not current_user.pode_aprovar():
+        abort(403)
+
+    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
+
+    if not doc.correcao_pendente:
+        flash('Não há correção pendente para reprovar.', 'warning')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    motivo = request.form.get('motivo', '').strip()
+    if not motivo:
+        flash('Informe o motivo da reprovação.', 'danger')
+        return redirect(url_for('documentos.detalhe', id=id))
+
+    registrar_evento(
+        doc.id, current_user.id,
+        AcaoEvento.CORRECAO_REPROVADA,
+        f'Correção reprovada por {current_user.nome}. Motivo: {motivo}',
+    )
+    db.session.commit()
+
+    flash(
+        'Correção reprovada. O rascunho foi mantido para correções adicionais.',
+        'warning',
+    )
+    return redirect(url_for('documentos.detalhe', id=id))
 

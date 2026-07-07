@@ -8,4 +8,4 @@
 #   - Na pré-visualização online do documento
 #   - No PDF gerado ao publicar como Vigente
 #
-# Se não houver logo.png, o sistema exibe o texto "CSV Cascavel" no lugar.
+# Se não houver logo.png, o sistema exibe o texto "Inspevel Cascavel" no lugar.

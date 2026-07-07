@@ -34,6 +34,14 @@ class AcaoEvento:
     EXPORTACAO_PDFS_CONCLUIDA = 'Exportação de PDFs em lote concluída'
     CONSULTA_REMOTA_VERIFICADA = 'Consulta remota verificada'
 
+    # ── Correção (admin) ───────────────────────────────────────────────────────
+    CORRECAO_ABERTA = 'Correção aberta (admin)'
+    CORRECAO_EDITADA = 'Correção editada (admin)'
+    CORRECAO_ENVIADA_APROVACAO = 'Correção enviada para aprovação'
+    CORRECAO_APROVADA = 'Correção aprovada'
+    CORRECAO_REPROVADA = 'Correção reprovada'
+    CORRECAO_CANCELADA = 'Correção cancelada (admin)'
+
     # Bootstrap icon name for each action (used in history timeline)
     ICONE = {
         DOCUMENTO_CADASTRADO: 'file-earmark-plus',
@@ -63,6 +71,12 @@ class AcaoEvento:
         EXPORTACAO_PDFS_INICIADA: 'file-zip',
         EXPORTACAO_PDFS_CONCLUIDA: 'file-zip',
         CONSULTA_REMOTA_VERIFICADA: 'globe2',
+        CORRECAO_ABERTA: 'pencil-square',
+        CORRECAO_EDITADA: 'pencil',
+        CORRECAO_ENVIADA_APROVACAO: 'send-check',
+        CORRECAO_APROVADA: 'patch-check',
+        CORRECAO_REPROVADA: 'x-octagon',
+        CORRECAO_CANCELADA: 'x-circle',
     }
 
     # Bootstrap colour for the timeline icon
@@ -94,6 +108,12 @@ class AcaoEvento:
         EXPORTACAO_PDFS_INICIADA: 'warning',
         EXPORTACAO_PDFS_CONCLUIDA: 'success',
         CONSULTA_REMOTA_VERIFICADA: 'success',
+        CORRECAO_ABERTA: 'warning',
+        CORRECAO_EDITADA: 'info',
+        CORRECAO_ENVIADA_APROVACAO: 'primary',
+        CORRECAO_APROVADA: 'success',
+        CORRECAO_REPROVADA: 'danger',
+        CORRECAO_CANCELADA: 'danger',
     }
 
 

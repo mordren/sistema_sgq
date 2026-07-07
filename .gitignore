@@ -41,6 +41,7 @@ instance/
 
 # Flask-Migrate
 migrations/
+storage/
 
 # IDE / editor
 .vscode/

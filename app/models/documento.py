@@ -121,6 +121,11 @@ class Documento(db.Model):
         nullable=False,
     )
 
+    # ── Correção (admin) — small fix without revision bump ─────────────────────
+    correcao_pendente = db.Column(db.Boolean, default=False, nullable=False)
+    correcao_content_html = db.Column(db.Text, nullable=True)
+    correcao_metadados_json = db.Column(db.Text, nullable=True)
+
     # ── Relationships ──────────────────────────────────────────────────────────
     revisoes = db.relationship(
         'RevisaoDocumento',

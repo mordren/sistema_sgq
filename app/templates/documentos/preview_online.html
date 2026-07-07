@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}Pré-visualização — {{ codigo }} | SGQ CSV Cascavel{% endblock %}
+{% block title %}Pré-visualização — {{ codigo }} | SGQ Inspevel Cascavel{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -283,7 +283,7 @@
              style="max-width:100%;max-height:80px;object-fit:contain;"
              onerror="this.style.display='none';document.getElementById('org-name-text').style.display='block';"
              alt="Logo">
-        <span id="org-name-text" style="display:none;font-size:11pt;font-weight:bold;">CSV Cascavel</span>
+        <span id="org-name-text" style="display:none;font-size:11pt;font-weight:bold;">Inspevel Cascavel</span>
       </td>
       <td class="doc-title-cell" colspan="2">{{ titulo }}</td>
     </tr>
@@ -342,7 +342,7 @@
 
   {# Revision history table #}
   {% if historico_revisoes %}
-  <p style="font-weight:bold;font-size:9pt;margin:10px 0 3px;">Histórico de Revisões</p>
+  <p style="font-weight:bold;font-size:9pt;margin:10px 0 3px;">0. Histórico de Revisões</p>
   <table class="rev-history">
     <thead>
       <tr>
