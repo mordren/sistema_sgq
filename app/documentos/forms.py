@@ -136,13 +136,19 @@ class EditorConteudoForm(FlaskForm):
     )
     descricao_alteracao = TextAreaField(
         'Descrição da Modificação',
-        validators=[Optional(), Length(max=500)],
-        description='Ex: Emissão inicial do procedimento.',
+        validators=[
+            DataRequired(message='Descreva objetivamente a modificação realizada.'),
+            Length(max=500, message='Máximo 500 caracteres.'),
+        ],
+        description='Campo obrigatório. Ex: Emissão inicial do procedimento.',
     )
     item_alterado = StringField(
         'Item(s) Alterado(s)',
-        validators=[Optional(), Length(max=200)],
-        description='Ex: 3.2, 4.1 — ou "N/A" para emissão inicial.',
+        validators=[
+            DataRequired(message='Informe o(s) item(ns) alterado(s).'),
+            Length(max=200, message='Máximo 200 caracteres.'),
+        ],
+        description='Campo obrigatório. Ex: 3.2, 4.1 — ou "N/A" para emissão inicial.',
     )
     submit = SubmitField('Salvar Conteúdo')
 

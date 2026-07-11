@@ -346,7 +346,7 @@
           <p class="small text-muted mb-2">
             Faça pequenas correções no conteúdo ou metadados
             <strong>sem alterar a revisão</strong> do documento.
-            As alterações passam por aprovação antes de serem aplicadas.
+            O histórico anterior é salvo automaticamente.
           </p>
           <form method="POST" action="{{ url_for('documentos.reabrir_correcao', id=doc.id) }}" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -357,14 +357,13 @@
         </div>
       </div>
       {% else %}
-      {% if not correcao_enviada %}
       {# ── Correction pending — being edited ── #}
       <div class="alert alert-warning d-flex align-items-center gap-2 small mb-3">
         <i class="bi bi-bug-fill fs-5 flex-shrink-0"></i>
         <span>
-          <strong>⚠️ Correção pendente de edição.</strong>
+          <strong>Correção pendente de edição.</strong>
           O documento vigente permanece acessível para os demais usuários.
-          As alterações só serão aplicadas após aprovação.
+          Ao aplicar, as alterações entram em vigor imediatamente.
         </span>
       </div>
       <div class="card border-0 shadow-sm mb-3 border-warning">
@@ -388,19 +387,20 @@
           </a>
         </div>
       </div>
-      <div class="card border-0 shadow-sm mb-3 border-primary">
-        <div class="card-header bg-primary-subtle border-bottom fw-semibold small py-2 text-primary-emphasis">
-          <i class="bi bi-send me-1"></i>Finalizar Correção
+      <div class="card border-0 shadow-sm mb-3 border-success">
+        <div class="card-header bg-success-subtle border-bottom fw-semibold small py-2 text-success-emphasis">
+          <i class="bi bi-check-circle me-1"></i>Finalizar Correção
         </div>
         <div class="card-body py-2">
           <p class="small text-muted mb-2">
-            Após finalizar as alterações, envie para aprovação.
+            Após finalizar as alterações, aplique a correção diretamente.
+            O histórico anterior será salvo automaticamente.
           </p>
-          <form method="POST" action="{{ url_for('documentos.enviar_correcao_aprovacao', id=doc.id) }}" novalidate>
+          <form method="POST" action="{{ url_for('documentos.aplicar_correcao', id=doc.id) }}" novalidate>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-primary w-100 mb-2"
-                    onclick="return confirm('Enviar a correção para aprovação?')">
-              <i class="bi bi-send me-1"></i>Enviar Correção para Aprovação
+            <button type="submit" class="btn btn-sm btn-success w-100 mb-2"
+                    onclick="return confirm('Aplicar a correção? As alterações entrarão em vigor imediatamente.')">
+              <i class="bi bi-check-circle me-1"></i>Aplicar Correção
             </button>
           </form>
           <form method="POST" action="{{ url_for('documentos.cancelar_correcao', id=doc.id) }}" novalidate>
@@ -412,31 +412,6 @@
           </form>
         </div>
       </div>
-      {% else %}
-      {# ── Correction sent — awaiting approval ── #}
-      <div class="alert alert-info d-flex align-items-center gap-2 small mb-3">
-        <i class="bi bi-send-check fs-5 flex-shrink-0"></i>
-        <span>
-          <strong>Correção enviada para aprovação.</strong>
-          Aguardando um Aprovador revisar e aprovar as alterações.
-        </span>
-      </div>
-      <div class="card border-0 shadow-sm mb-3">
-        <div class="card-body py-2">
-          <a href="{{ url_for('documentos.preview_documento', id=doc.id, correcao=1) }}"
-             target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-2">
-            <i class="bi bi-eye me-1"></i>Pré-visualizar Correção
-          </a>
-          <form method="POST" action="{{ url_for('documentos.cancelar_correcao', id=doc.id) }}" novalidate>
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-outline-danger w-100"
-                    onclick="return confirm('Tem certeza? A correção será cancelada e o rascunho descartado.')">
-              <i class="bi bi-x-circle me-1"></i>Cancelar Correção
-            </button>
-          </form>
-        </div>
-      </div>
-      {% endif %}
       {% endif %}
 
     {% endif %}
@@ -738,54 +713,6 @@
     </div>
     {% endif %}
 
-    {% endif %}
-
-    {# ── CORREÇÃO — Aprovador (após envio) ──────────────────────────────── #}
-    {% if correcao_pendente and correcao_enviada and pode_aprovar_doc %}
-    <div class="card border-0 shadow-sm mb-3 border-success">
-      <div class="card-header bg-success-subtle fw-semibold small">
-        <i class="bi bi-patch-check me-1"></i>Aprovar Correção
-      </div>
-      <div class="card-body">
-        {% if doc.correcao_content_html %}
-        <a href="{{ url_for('documentos.preview_documento', id=doc.id, correcao=1) }}"
-           target="_blank" class="btn btn-sm btn-outline-primary w-100 mb-3">
-          <i class="bi bi-eye me-1"></i>Visualizar Correção
-        </a>
-        {% endif %}
-        <p class="small text-muted mb-3">
-          <i class="bi bi-info-circle me-1"></i>
-          Ao aprovar, as alterações de conteúdo e metadados serão aplicadas
-          ao documento vigente. A revisão <strong>não</strong> será alterada.
-        </p>
-        <form method="POST" action="{{ url_for('documentos.aprovar_correcao', id=doc.id) }}" novalidate>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-success w-100 mb-2"
-                  onclick="return confirm('Confirma a aprovação desta correção?')">
-            <i class="bi bi-check-circle me-1"></i>Aprovar Correção
-          </button>
-        </form>
-        <hr class="my-2">
-        <form method="POST" action="{{ url_for('documentos.reprovar_correcao', id=doc.id) }}" novalidate>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="mb-2">
-            <textarea name="motivo" class="form-control form-control-sm" rows="2"
-                      placeholder="Motivo da reprovação..." required></textarea>
-          </div>
-          <button type="submit" class="btn btn-outline-danger btn-sm w-100">
-            <i class="bi bi-x-circle me-1"></i>Reprovar Correção
-          </button>
-        </form>
-      </div>
-    </div>
-    {% endif %}
-
-    {# ── CORREÇÃO — Admin sem poder de aprovar (só info) ────────────────── #}
-    {% if correcao_pendente and current_user.perfil == 'Administrador' and not pode_aprovar_doc %}
-    <div class="alert alert-warning small mb-3">
-      <i class="bi bi-bug-fill me-2"></i>
-      <strong>Correção pendente</strong> — aguardando aprovação por um Aprovador.
-    </div>
     {% endif %}
 
   </div>

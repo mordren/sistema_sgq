@@ -1482,26 +1482,6 @@ def detalhe(id):
 
     revisor_global = Usuario.revisor_padrao_ativo()
 
-    # ── Correction state: has the admin already sent for approval? ─────────
-    correcao_enviada = False
-    if doc.correcao_pendente:
-        ultimo_correcao = (
-            HistoricoEvento.query
-            .filter(
-                HistoricoEvento.documento_id == id,
-                HistoricoEvento.acao.in_([
-                    AcaoEvento.CORRECAO_ABERTA,
-                    AcaoEvento.CORRECAO_EDITADA,
-                    AcaoEvento.CORRECAO_ENVIADA_APROVACAO,
-                    AcaoEvento.CORRECAO_REPROVADA,
-                ]),
-            )
-            .order_by(HistoricoEvento.data_evento.desc())
-            .first()
-        )
-        if ultimo_correcao and ultimo_correcao.acao == AcaoEvento.CORRECAO_ENVIADA_APROVACAO:
-            correcao_enviada = True
-
     return render_template(
         'documentos/detalhe.html',
         title=f'{doc.codigo} – {doc.titulo}',
@@ -1525,7 +1505,6 @@ def detalhe(id):
         pode_revisar=current_user.pode_revisar(),
         pode_aprovar_doc=current_user.pode_aprovar(),
         correcao_pendente=doc.correcao_pendente,
-        correcao_enviada=correcao_enviada,
         StatusDocumento=StatusDocumento,
         TipoDocumento=TipoDocumento,
     )
@@ -2752,6 +2731,18 @@ def editor_documento(id):
 
         if form.validate_on_submit():
             doc.correcao_content_html = form.content_html.data
+            # Salva metadados de revisão na correção
+            meta_raw = doc.correcao_metadados_json
+            try:
+                draft_meta = json.loads(meta_raw) if meta_raw else {}
+            except (TypeError, ValueError):
+                draft_meta = {}
+            if form.descricao_alteracao.data:
+                draft_meta['descricao_alteracao'] = form.descricao_alteracao.data.strip()
+            if form.item_alterado.data:
+                draft_meta['item_alterado'] = form.item_alterado.data.strip()
+            doc.correcao_metadados_json = json.dumps(draft_meta, ensure_ascii=False)
+
             doc.atualizado_em = agora_brasilia()
             registrar_evento(
                 doc.id, current_user.id,
@@ -2769,6 +2760,17 @@ def editor_documento(id):
 
         if request.method == 'GET' and doc.correcao_content_html:
             form.content_html.data = doc.correcao_content_html
+            # Pre-popula campos de revisão do draft ou do documento atual
+            try:
+                draft_meta = json.loads(doc.correcao_metadados_json) if doc.correcao_metadados_json else {}
+            except (TypeError, ValueError):
+                draft_meta = {}
+            form.descricao_alteracao.data = draft_meta.get(
+                'descricao_alteracao', doc.descricao_alteracao or ''
+            )
+            form.item_alterado.data = draft_meta.get(
+                'item_alterado', doc.item_alterado or ''
+            )
 
         return render_template(
             'documentos/editor.html',
@@ -3458,7 +3460,7 @@ def reabrir_correcao(id):
     )
     db.session.commit()
 
-    flash('Correção aberta. Edite os metadados e/ou conteúdo e envie para aprovação.', 'success')
+    flash('Correção aberta. Edite os metadados e/ou conteúdo e aplique a correção.', 'success')
     return redirect(url_for('documentos.editar', id=id, correcao=1))
 
 
@@ -3491,50 +3493,29 @@ def cancelar_correcao(id):
     return redirect(url_for('documentos.detalhe', id=id))
 
 
-@documentos.route('/<int:id>/enviar-correcao-aprovacao', methods=['POST'])
+@documentos.route('/<int:id>/aplicar-correcao', methods=['POST'])
 @login_required
-def enviar_correcao_aprovacao(id):
-    """Admin sends the pending correction for approval."""
+def aplicar_correcao(id):
+    """Admin applies a pending correction directly — no approval needed.
+
+    The document's aprovado_por_id is NOT changed.
+    descricao_alteracao and item_alterado from the correction draft are
+    carried to the document so the printed history stays accurate.
+    """
     if current_user.perfil != Perfil.ADMINISTRADOR:
         abort(403)
 
     doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
 
     if not doc.correcao_pendente:
-        flash('Não há correção pendente para enviar.', 'warning')
+        flash('Não há correção pendente para aplicar.', 'warning')
         return redirect(url_for('documentos.detalhe', id=id))
 
-    # Must have either content_html or metadata changes
     if not doc.correcao_content_html and not doc.correcao_metadados_json:
         flash(
-            'A correção precisa ter conteúdo (editor online) ou alterações de metadados '
-            'antes de ser enviada para aprovação.',
+            'A correção precisa ter conteúdo (editor online) ou alterações de metadados.',
             'warning',
         )
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    registrar_evento(
-        doc.id, current_user.id,
-        AcaoEvento.CORRECAO_ENVIADA_APROVACAO,
-        f'Correção enviada para aprovação por {current_user.nome}.',
-    )
-    db.session.commit()
-
-    flash('Correção enviada para aprovação.', 'success')
-    return redirect(url_for('documentos.detalhe', id=id))
-
-
-@documentos.route('/<int:id>/aprovar-correcao', methods=['POST'])
-@login_required
-def aprovar_correcao(id):
-    """Approve a pending correction — applies draft data to the document."""
-    if not current_user.pode_aprovar():
-        abort(403)
-
-    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
-
-    if not doc.correcao_pendente:
-        flash('Não há correção pendente para aprovar.', 'warning')
         return redirect(url_for('documentos.detalhe', id=id))
 
     # ── Apply content ───────────────────────────────────────────────────────
@@ -3565,53 +3546,26 @@ def aprovar_correcao(id):
         if draft.get('observacao'):
             doc.observacao = draft['observacao']
 
-    # ── Clear correction flags (revision number does NOT change) ────────────
+        # ── SGQ: update revision-history fields ──────────────────────────
+        if draft.get('descricao_alteracao'):
+            doc.descricao_alteracao = draft['descricao_alteracao']
+        if draft.get('item_alterado'):
+            doc.item_alterado = draft['item_alterado']
+
+    # ── Clear correction flags (revision does NOT change, aprovador does NOT change) ──
     doc.correcao_pendente = False
     doc.correcao_content_html = None
     doc.correcao_metadados_json = None
     doc.atualizado_em = agora_brasilia()
-    # Document stays Vigente
 
     registrar_evento(
         doc.id, current_user.id,
         AcaoEvento.CORRECAO_APROVADA,
-        f'Correção aprovada por {current_user.nome}. '
+        f'Correção aplicada por {current_user.nome}. '
         f'Revisão {doc.revisao_formatada} mantida.',
     )
     db.session.commit()
 
-    flash('Correção aprovada! Conteúdo e metadados atualizados.', 'success')
-    return redirect(url_for('documentos.detalhe', id=id))
-
-
-@documentos.route('/<int:id>/reprovar-correcao', methods=['POST'])
-@login_required
-def reprovar_correcao(id):
-    """Reprove a pending correction — keeps draft for rework."""
-    if not current_user.pode_aprovar():
-        abort(403)
-
-    doc = Documento.query.filter_by(id=id, ativo=True).first_or_404()
-
-    if not doc.correcao_pendente:
-        flash('Não há correção pendente para reprovar.', 'warning')
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    motivo = request.form.get('motivo', '').strip()
-    if not motivo:
-        flash('Informe o motivo da reprovação.', 'danger')
-        return redirect(url_for('documentos.detalhe', id=id))
-
-    registrar_evento(
-        doc.id, current_user.id,
-        AcaoEvento.CORRECAO_REPROVADA,
-        f'Correção reprovada por {current_user.nome}. Motivo: {motivo}',
-    )
-    db.session.commit()
-
-    flash(
-        'Correção reprovada. O rascunho foi mantido para correções adicionais.',
-        'warning',
-    )
+    flash('Correção aplicada com sucesso! Conteúdo e metadados atualizados.', 'success')
     return redirect(url_for('documentos.detalhe', id=id))
 

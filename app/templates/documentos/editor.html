@@ -97,20 +97,32 @@
       <div class="col-md-8">
         <label class="form-label small fw-semibold mb-1" for="descricao_alteracao">
           <i class="bi bi-pencil-square me-1 text-secondary"></i>Descrição da Modificação
-          <span class="text-muted fw-normal">(opcional)</span>
+          <span class="text-danger">*</span>
+          <span class="text-muted fw-normal">(obrigatório)</span>
         </label>
         {{ form.descricao_alteracao(class="form-control form-control-sm",
            id="descricao_alteracao", rows="2",
            placeholder="Ex: Emissão inicial do procedimento.") }}
+        {% if form.descricao_alteracao.errors %}
+          <div class="text-danger small mt-1">
+            {% for e in form.descricao_alteracao.errors %}{{ e }}{% endfor %}
+          </div>
+        {% endif %}
       </div>
       <div class="col-md-4">
         <label class="form-label small fw-semibold mb-1" for="item_alterado">
           <i class="bi bi-list-ol me-1 text-secondary"></i>Item(s) Alterado(s)
-          <span class="text-muted fw-normal">(opcional)</span>
+          <span class="text-danger">*</span>
+          <span class="text-muted fw-normal">(obrigatório)</span>
         </label>
         {{ form.item_alterado(class="form-control form-control-sm",
            id="item_alterado",
            placeholder="Ex: 3.2, 4.1 ou N/A") }}
+        {% if form.item_alterado.errors %}
+          <div class="text-danger small mt-1">
+            {% for e in form.item_alterado.errors %}{{ e }}{% endfor %}
+          </div>
+        {% endif %}
       </div>
     </div>
 
